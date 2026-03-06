@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Avenir Next", "Sora", "Segoe UI", "Helvetica Neue", "Noto Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  --surface: #f4f7fb;
+  --surface-elevated: #ffffff;
+  --surface-muted: #ecf1f8;
+  --border: #d9e1eb;
+  --text: #0f1723;
+  --text-muted: #566173;
+  --primary: #125fd6;
+  --primary-strong: #0d4eb3;
+  --danger: #cf3d48;
+  --warning: #d17e13;
+  --success: #1f8f52;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: radial-gradient(circle at 90% 10%, #dfe9f8 0%, transparent 45%),
+    radial-gradient(circle at 15% -5%, #d0e5ff 0%, transparent 34%),
+    var(--surface);
+  color: var(--text);
+}
+
+body {
+  font-feature-settings: "cv11", "ss01";
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+}
