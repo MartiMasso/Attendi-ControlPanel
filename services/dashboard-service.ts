@@ -1,5 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isMissingDatabaseObject } from "@/lib/supabase/errors";
+import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import type { DashboardMetrics, RecentActivityItem } from "@/types";
 
 const ACTIVE_RESERVATION_STATUSES = ["accepted", "active", "in_progress", "ongoing"];
@@ -18,7 +18,7 @@ async function countRows(
   const { count, error } = await query;
 
   if (error) {
-    if (isMissingDatabaseObject(error)) {
+    if (isMissingDatabaseObject(error) || isPermissionError(error)) {
       return 0;
     }
 
@@ -60,7 +60,7 @@ export async function getRecentActivity(limit = 12): Promise<RecentActivityItem[
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (auditError && !isMissingDatabaseObject(auditError)) {
+  if (auditError && !isMissingDatabaseObject(auditError) && !isPermissionError(auditError)) {
     throw new Error(auditError.message);
   }
 
@@ -87,7 +87,7 @@ export async function getRecentActivity(limit = 12): Promise<RecentActivityItem[
 
   const activity: RecentActivityItem[] = [];
 
-  if (!verificationRows.error || isMissingDatabaseObject(verificationRows.error)) {
+  if (!verificationRows.error || isMissingDatabaseObject(verificationRows.error) || isPermissionError(verificationRows.error)) {
     (verificationRows.data ?? []).forEach((row) => {
       activity.push({
         id: `verification-${row.id}`,
@@ -100,7 +100,7 @@ export async function getRecentActivity(limit = 12): Promise<RecentActivityItem[
     });
   }
 
-  if (!reservationRows.error || isMissingDatabaseObject(reservationRows.error)) {
+  if (!reservationRows.error || isMissingDatabaseObject(reservationRows.error) || isPermissionError(reservationRows.error)) {
     (reservationRows.data ?? []).forEach((row) => {
       activity.push({
         id: `reservation-${row.id}`,

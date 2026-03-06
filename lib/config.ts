@@ -1,19 +1,18 @@
-const required = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"] as const;
+export function getSupabaseConfig() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-function getEnv(name: string): string {
-  const value = process.env[name];
-
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+  if (!url) {
+    throw new Error("Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL");
   }
 
-  return value;
-}
+  if (!anonKey) {
+    throw new Error("Missing required environment variable: NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
 
-export function getSupabaseConfig() {
   return {
-    url: getEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    anonKey: getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    url,
+    anonKey
   };
 }
 
@@ -26,9 +25,11 @@ export function hasServiceRoleKey() {
 }
 
 export function validateRequiredEnv() {
-  required.forEach((key) => {
-    if (!process.env[key]) {
-      throw new Error(`Missing required environment variable: ${key}`);
-    }
-  });
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error("Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL");
+  }
+
+  if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    throw new Error("Missing required environment variable: NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
 }

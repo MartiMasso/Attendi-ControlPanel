@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isMissingDatabaseObject } from "@/lib/supabase/errors";
+import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import type { AdminRecord } from "@/types";
 
 export interface ActiveAdminSession {
@@ -40,7 +40,7 @@ export async function getActiveAdminSession(): Promise<ActiveAdminSession | null
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profileError && !isMissingDatabaseObject(profileError)) {
+  if (profileError && !isMissingDatabaseObject(profileError) && !isPermissionError(profileError)) {
     throw new Error(profileError.message);
   }
 

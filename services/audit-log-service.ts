@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isMissingDatabaseObject } from "@/lib/supabase/errors";
+import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import type { AuditLogRow } from "@/types";
 
 interface CreateAuditLogInput {
@@ -39,7 +39,7 @@ export async function listAuditLogs(limit = 100): Promise<AuditLogRow[]> {
     .limit(limit);
 
   if (error) {
-    if (isMissingDatabaseObject(error)) {
+    if (isMissingDatabaseObject(error) || isPermissionError(error)) {
       return [];
     }
 

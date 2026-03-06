@@ -19,27 +19,31 @@ export function LoginForm({ nextPath, initialError }: { nextPath?: string; initi
     setError(null);
 
     startTransition(async () => {
-      const supabase = createSupabaseBrowserClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-      if (signInError) {
-        setError(signInError.message);
-        return;
+        if (signInError) {
+          setError(signInError.message);
+          return;
+        }
+
+        const response = await fetch("/api/auth/check-admin", {
+          method: "GET",
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          await supabase.auth.signOut();
+          setError("This account is not authorized for Attendi Control Panel.");
+          return;
+        }
+
+        router.push(nextPath || "/dashboard");
+        router.refresh();
+      } catch (exception) {
+        setError(exception instanceof Error ? exception.message : "Unable to sign in right now.");
       }
-
-      const response = await fetch("/api/auth/check-admin", {
-        method: "GET",
-        cache: "no-store"
-      });
-
-      if (!response.ok) {
-        await supabase.auth.signOut();
-        setError("This account is not authorized for Attendi Control Panel.");
-        return;
-      }
-
-      router.push(nextPath || "/dashboard");
-      router.refresh();
     });
   };
 

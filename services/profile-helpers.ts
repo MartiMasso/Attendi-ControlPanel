@@ -1,5 +1,5 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
-import { isMissingDatabaseObject } from "@/lib/supabase/errors";
+import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export interface ProfileIdentity {
@@ -26,7 +26,7 @@ export async function getProfilesMap(userIds: string[]) {
     .in("id", userIds);
 
   if (error) {
-    if (isMissingDatabaseObject(error)) {
+    if (isMissingDatabaseObject(error) || isPermissionError(error)) {
       return map;
     }
 
@@ -54,7 +54,7 @@ export async function getEmailMapByUserIds(userIds: string[]) {
     .select("user_id,email")
     .in("user_id", userIds);
 
-  if (businessError && !isMissingDatabaseObject(businessError)) {
+  if (businessError && !isMissingDatabaseObject(businessError) && !isPermissionError(businessError)) {
     throw new Error(businessError.message);
   }
 
@@ -111,7 +111,7 @@ export async function getLastSeenMap(userIds: string[]) {
     .order("last_seen_at", { ascending: false });
 
   if (error) {
-    if (isMissingDatabaseObject(error)) {
+    if (isMissingDatabaseObject(error) || isPermissionError(error)) {
       return map;
     }
 
