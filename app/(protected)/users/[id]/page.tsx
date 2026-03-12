@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { AddFlagForm } from "@/components/forms/add-flag-form";
 import { AddNoteForm } from "@/components/forms/add-note-form";
+import { UpdateAccountTypeForm } from "@/components/forms/update-account-type-form";
 import { Card } from "@/components/ui/card";
 import { DataTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/data-table";
 import { EntityPreview } from "@/components/ui/entity-preview";
@@ -41,6 +42,14 @@ export default async function UserDetailPage({ params }: { params: { id: string 
         <EntityPreview title="Business details" value={detail.businessDetails} />
         <EntityPreview title="Hotel details" value={detail.hotelDetails} />
       </div>
+
+      <section>
+        <UpdateAccountTypeForm
+          userId={detail.profile.id}
+          currentAccountType={detail.profile.account_type}
+          currentVerificationStatus={detail.profile.verification_status}
+        />
+      </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
         <Card className="space-y-3">

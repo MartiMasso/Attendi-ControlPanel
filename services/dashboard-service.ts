@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
+import { isRealPendingVerificationRequest } from "@/lib/verification-requests";
 import type { DashboardMetrics, RecentActivityItem } from "@/types";
 
 const ACTIVE_RESERVATION_STATUSES = ["accepted", "active", "in_progress", "ongoing"];
@@ -28,6 +29,36 @@ async function countRows(
   return count ?? 0;
 }
 
+async function countRealPendingVerifications() {
+  const supabase = createSupabaseServerClient();
+  const viewQuery = await supabase
+    .from("admin_verification_requests_v1")
+    .select("request_id", { count: "exact", head: true })
+    .eq("is_real_pending", true);
+
+  if (!viewQuery.error) {
+    return viewQuery.count ?? 0;
+  }
+
+  if (!isMissingDatabaseObject(viewQuery.error) && !isPermissionError(viewQuery.error)) {
+    throw new Error(viewQuery.error.message);
+  }
+
+  const fallbackQuery = await supabase.from("verification_requests").select("status,payload").eq("status", "pending");
+
+  if (fallbackQuery.error) {
+    if (isMissingDatabaseObject(fallbackQuery.error) || isPermissionError(fallbackQuery.error)) {
+      return 0;
+    }
+
+    throw new Error(fallbackQuery.error.message);
+  }
+
+  return (fallbackQuery.data ?? []).filter((row) =>
+    isRealPendingVerificationRequest(row.status, row.payload as Record<string, unknown> | null)
+  ).length;
+}
+
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const [totalUsers, totalBusinesses, totalHotels, totalReservations, activeReservations, pendingVerifications, openIncidents] =
     await Promise.all([
@@ -36,7 +67,7 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
       countRows("profiles", (query) => query.eq("account_type", "hotel")),
       countRows("reservations"),
       countRows("reservations", (query) => query.in("status", ACTIVE_RESERVATION_STATUSES)),
-      countRows("verification_requests", (query) => query.eq("status", "pending")),
+      countRealPendingVerifications(),
       countRows("incidents", (query) => query.in("status", ["open", "in_review"]))
     ]);
 

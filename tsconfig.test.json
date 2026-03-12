@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "incremental": false
+  },
+  "include": ["lib/verification-requests.ts", "types/index.ts", "tests/**/*.test.ts"],
+  "exclude": ["node_modules", ".next"]
+}

@@ -39,6 +39,7 @@ Private (admin-only):
 - `/incidents/[id]`
 - `/audit-logs`
 - `/settings`
+- `/internal-hub`
 
 ## Security Model
 
@@ -128,11 +129,13 @@ docs/
 - Sidebar/topbar private app shell
 - KPI dashboard with recent activity
 - User listing + detail + internal notes/flags
+- Manual user account-type upgrades/downgrades (`consumer` / `business` / `hotel`)
 - Verification listing + detail + approve/reject actions
 - Reservation listing + detail + related incidents/notes/flags
 - Incidents listing + detail + status/priority update
 - Audit logs section
 - Settings section with current admin context
+- Internal Hub section with assignable team tasks and persistent internal notes
 
 ## Scripts
 

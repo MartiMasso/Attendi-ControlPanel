@@ -1,18 +1,34 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import type { VerificationRequestDecision } from "@/types";
 
 export function VerificationReviewForm({ requestId }: { requestId: string }) {
   const router = useRouter();
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const runAction = (decision: "approve" | "reject") => {
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setToast(null);
+    }, 3200);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [toast]);
+
+  const runAction = (decision: VerificationRequestDecision) => {
     setError(null);
 
     startTransition(async () => {
@@ -26,10 +42,15 @@ export function VerificationReviewForm({ requestId }: { requestId: string }) {
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(payload?.error ?? "Unable to process verification request.");
+        const message = payload?.error ?? "Unable to process verification request.";
+        setError(message);
+        setToast({ tone: "error", message });
         return;
       }
 
+      const payload = (await response.json().catch(() => null)) as { status?: string } | null;
+      const status = payload?.status ? String(payload.status).replace(/_/g, " ") : "updated";
+      setToast({ tone: "success", message: `Verification request ${status}.` });
       router.refresh();
     });
   };
@@ -50,7 +71,22 @@ export function VerificationReviewForm({ requestId }: { requestId: string }) {
         <Button type="button" variant="danger" size="sm" onClick={() => runAction("reject")} disabled={isPending}>
           Reject
         </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => runAction("needs_changes")} disabled={isPending}>
+          Needs changes
+        </Button>
       </div>
+      {isPending ? <p className="text-xs text-text-muted">Saving review...</p> : null}
+      {toast ? (
+        <div
+          className={`fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm shadow-lg ${
+            toast.tone === "success" ? "bg-[#e6f5ed] text-success" : "bg-[#fdebed] text-danger"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {toast.message}
+        </div>
+      ) : null}
     </div>
   );
 }

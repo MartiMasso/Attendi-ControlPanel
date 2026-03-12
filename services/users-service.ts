@@ -1,9 +1,10 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isMissingDatabaseObject } from "@/lib/supabase/errors";
 import { isUUID } from "@/lib/utils";
+import { deriveEffectiveVerificationStatus, isRealPendingVerificationRequest } from "@/lib/verification-requests";
 import { getAdminFlags, getAdminNotes } from "@/services/admin-meta-service";
 import { getEmailMapByUserIds, getLastSeenMap } from "@/services/profile-helpers";
-import type { UserDetail, UserRow } from "@/types";
+import type { AccountType, UserDetail, UserRow, VerificationStatus } from "@/types";
 
 interface ListUsersInput {
   query?: string;
@@ -11,6 +12,45 @@ interface ListUsersInput {
   verificationStatus?: string;
   page?: number;
   pageSize?: number;
+}
+
+const UPGRADABLE_TYPES: AccountType[] = ["consumer", "business", "hotel"];
+
+async function getRealPendingVerificationUserIdSet(userIds?: string[]) {
+  if (userIds && !userIds.length) {
+    return new Set<string>();
+  }
+
+  const supabase = createSupabaseServerClient();
+  let statement = supabase.from("verification_requests").select("user_id,status,payload").eq("status", "pending");
+
+  if (userIds?.length) {
+    statement = statement.in("user_id", userIds);
+  }
+
+  const { data, error } = await statement;
+
+  if (error) {
+    if (isMissingDatabaseObject(error)) {
+      return new Set<string>();
+    }
+
+    throw new Error(error.message);
+  }
+
+  const set = new Set<string>();
+  (data ?? []).forEach((row) => {
+    const userId = String(row.user_id ?? "");
+    if (!userId) {
+      return;
+    }
+
+    if (isRealPendingVerificationRequest(row.status, row.payload as Record<string, unknown> | null)) {
+      set.add(userId);
+    }
+  });
+
+  return set;
 }
 
 export async function listUsers({
@@ -21,8 +61,18 @@ export async function listUsers({
   pageSize = 30
 }: ListUsersInput) {
   const supabase = createSupabaseServerClient();
+  const normalizedVerificationStatus = verificationStatus ? verificationStatus.toLowerCase() : "";
+  const needsRealPendingFilter = normalizedVerificationStatus === "pending";
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
+  const realPendingUserIds = needsRealPendingFilter ? await getRealPendingVerificationUserIdSet() : new Set<string>();
+
+  if (needsRealPendingFilter && realPendingUserIds.size === 0) {
+    return {
+      rows: [] as UserRow[],
+      total: 0
+    };
+  }
 
   let statement = supabase
     .from("profiles")
@@ -30,11 +80,15 @@ export async function listUsers({
     .order("created_at", { ascending: false })
     .range(from, to);
 
+  if (needsRealPendingFilter) {
+    statement = statement.in("id", Array.from(realPendingUserIds));
+  }
+
   if (accountType) {
     statement = statement.eq("account_type", accountType);
   }
 
-  if (verificationStatus) {
+  if (verificationStatus && !needsRealPendingFilter) {
     statement = statement.eq("verification_status", verificationStatus);
   }
 
@@ -64,14 +118,25 @@ export async function listUsers({
   }>;
 
   const userIds = rows.map((row) => row.id);
-  const [emailMap, lastSeenMap] = await Promise.all([getEmailMapByUserIds(userIds), getLastSeenMap(userIds)]);
+  const [emailMap, lastSeenMap, realPendingForRows] = await Promise.all([
+    getEmailMapByUserIds(userIds),
+    getLastSeenMap(userIds),
+    getRealPendingVerificationUserIdSet(userIds)
+  ]);
 
-  const mappedRows: UserRow[] = rows.map((row) => ({
-    ...row,
-    email: emailMap.get(row.id) ?? null,
-    verification_status: row.verification_status,
-    last_seen_at: lastSeenMap.get(row.id) ?? null
-  }));
+  const mappedRows: UserRow[] = rows.map((row) => {
+    const hasRealPending = realPendingForRows.has(row.id);
+    const effectiveVerificationStatus = deriveEffectiveVerificationStatus(row.verification_status, hasRealPending);
+
+    return {
+      ...row,
+      email: emailMap.get(row.id) ?? null,
+      verification_status: effectiveVerificationStatus,
+      effective_verification_status: effectiveVerificationStatus,
+      has_real_pending_verification_request: hasRealPending,
+      last_seen_at: lastSeenMap.get(row.id) ?? null
+    };
+  });
 
   return {
     rows: mappedRows,
@@ -96,7 +161,14 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
     return null;
   }
 
-  const [emailMap, lastSeenMap] = await Promise.all([getEmailMapByUserIds([userId]), getLastSeenMap([userId])]);
+  const [emailMap, lastSeenMap, realPendingForUser] = await Promise.all([
+    getEmailMapByUserIds([userId]),
+    getLastSeenMap([userId]),
+    getRealPendingVerificationUserIdSet([userId])
+  ]);
+
+  const hasRealPending = realPendingForUser.has(userId);
+  const effectiveVerificationStatus = deriveEffectiveVerificationStatus(profile.verification_status, hasRealPending);
 
   const { data: businessDetails, error: businessError } = await supabase
     .from("business_details")
@@ -145,7 +217,9 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       username: profile.username as string,
       email: emailMap.get(userId) ?? null,
       account_type: profile.account_type as "consumer" | "business" | "hotel",
-      verification_status: profile.verification_status as string,
+      verification_status: effectiveVerificationStatus,
+      effective_verification_status: effectiveVerificationStatus,
+      has_real_pending_verification_request: hasRealPending,
       created_at: profile.created_at as string | null,
       last_seen_at: lastSeenMap.get(userId) ?? null
     },
@@ -155,5 +229,69 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
     reservations: (reservations as Array<Record<string, unknown>> | null) ?? [],
     notes,
     flags
+  };
+}
+
+export async function updateUserAccountType(userId: string, nextAccountType: AccountType) {
+  if (!UPGRADABLE_TYPES.includes(nextAccountType)) {
+    throw new Error("Invalid account type.");
+  }
+
+  const supabase = createSupabaseServerClient();
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id,account_type,verification_status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
+
+  if (!profile) {
+    throw new Error("User not found.");
+  }
+
+  const previousAccountType = profile.account_type as AccountType;
+  const previousVerificationStatus = profile.verification_status as VerificationStatus;
+
+  let nextVerificationStatus: VerificationStatus = previousVerificationStatus;
+
+  if (nextAccountType === "consumer") {
+    nextVerificationStatus = "not_required";
+  } else if (previousVerificationStatus === "not_required") {
+    // Manual upgrade from consumer to business/hotel implies explicit admin approval.
+    nextVerificationStatus = "approved";
+  }
+
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({
+      account_type: nextAccountType,
+      verification_status: nextVerificationStatus
+    })
+    .eq("id", userId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  if (nextAccountType === "business" || nextAccountType === "hotel") {
+    const { error: businessDetailsError } = await supabase
+      .from("business_details")
+      .update({ organization_type: nextAccountType })
+      .eq("user_id", userId);
+
+    if (businessDetailsError && !isMissingDatabaseObject(businessDetailsError)) {
+      throw new Error(businessDetailsError.message);
+    }
+  }
+
+  return {
+    previousAccountType,
+    nextAccountType,
+    previousVerificationStatus,
+    nextVerificationStatus
   };
 }

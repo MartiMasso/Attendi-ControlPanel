@@ -15,7 +15,8 @@ const routeTitles: Record<string, string> = {
   reservations: "Reservations",
   incidents: "Incidents",
   "audit-logs": "Audit Logs",
-  settings: "Settings"
+  settings: "Settings",
+  "internal-hub": "Team Management"
 };
 
 export function Topbar({ displayName, role }: { displayName: string; role: string }) {

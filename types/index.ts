@@ -2,14 +2,19 @@ export type AccountType = "consumer" | "business" | "hotel";
 
 export type VerificationStatus =
   | "not_required"
+  | "not_started"
   | "pending"
   | "approved"
   | "rejected"
+  | "needs_changes"
   | "in_review"
   | string;
 
 export type IncidentStatus = "open" | "in_review" | "resolved";
 export type IncidentPriority = "low" | "medium" | "high";
+export type InternalTaskStatus = "todo" | "in_progress" | "blocked" | "done";
+export type InternalTaskPriority = "low" | "medium" | "high" | "urgent";
+export type InternalNoteCategory = "announcement" | "decision" | "reminder" | "resource";
 
 export interface AdminRecord {
   id: string;
@@ -34,6 +39,8 @@ export interface UserRow {
   email: string | null;
   account_type: AccountType;
   verification_status: VerificationStatus;
+  effective_verification_status?: VerificationStatus;
+  has_real_pending_verification_request?: boolean;
   created_at: string | null;
   last_seen_at: string | null;
 }
@@ -48,24 +55,63 @@ export interface UserDetail {
   flags: AdminFlag[];
 }
 
+export interface VerificationRequestPayloadAddress {
+  street?: string | null;
+  street_number?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+}
+
+export interface VerificationRequestPayloadOpeningHours {
+  mon_fri?: string | null;
+  saturday?: string | null;
+  sunday?: string | null;
+}
+
+export interface VerificationRequestPayloadContact {
+  phone?: string | null;
+}
+
+export interface VerificationRequestPayload {
+  source?: string | null;
+  request_kind?: string | null;
+  category?: string | null;
+  address?: VerificationRequestPayloadAddress | null;
+  opening_hours?: VerificationRequestPayloadOpeningHours | null;
+  contact?: VerificationRequestPayloadContact | null;
+  [key: string]: unknown;
+}
+
+export type VerificationRequestDecision = "approve" | "reject" | "needs_changes";
+
 export interface VerificationRequestRow {
   id: string;
   user_id: string;
+  user_full_name: string | null;
+  user_username: string | null;
+  login_email: string | null;
+  current_account_type: AccountType | string | null;
   requested_account_type: "business" | "hotel";
   legal_name: string;
   tax_id: string;
   company_email: string | null;
   company_phone: string | null;
-  payload: Record<string, unknown>;
+  payload: VerificationRequestPayload;
+  source: string;
+  request_kind: string | null;
   status: VerificationStatus;
-  submitted_at: string;
+  submitted_at: string | null;
+  last_submitted_at: string | null;
+  last_admin_email_sent_at: string | null;
+  last_email_action: string | null;
+  reminder_count: number;
+  updated_at: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
   review_note: string | null;
+  review_notes: string | null;
   admin_notes: string | null;
   rejected_reason: string | null;
-  user_full_name: string | null;
-  user_username: string | null;
 }
 
 export interface ReservationRow {
@@ -94,6 +140,40 @@ export interface IncidentRow {
   status: IncidentStatus;
   priority: IncidentPriority;
   assigned_admin_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InternalHubMember {
+  user_id: string;
+  full_name: string | null;
+  username: string | null;
+  role: string;
+}
+
+export interface InternalTaskRow {
+  id: string;
+  title: string;
+  description: string | null;
+  status: InternalTaskStatus;
+  priority: InternalTaskPriority;
+  assignee_user_id: string | null;
+  assignee_name: string | null;
+  created_by_user_id: string;
+  created_by_name: string | null;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InternalNoteRow {
+  id: string;
+  title: string;
+  body: string;
+  category: InternalNoteCategory | string;
+  pinned: boolean;
+  created_by_user_id: string;
+  created_by_name: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -12,6 +12,12 @@ This panel is designed to work defensively against partial schemas. Missing opti
   - used for reservation lists/detail and KPI metrics
 - `public.verification_requests`
   - used for verification queue/review flow
+- `public.admin_verification_requests_v1`
+  - denormalized admin read model (verification queue filters + real pending logic)
+- `public.internal_hub_tasks`
+  - team task assignment and execution tracking in Internal Hub
+- `public.internal_hub_notes`
+  - pinned announcements, decisions, reminders, and internal resources
 
 ## Strongly recommended existing tables
 
@@ -26,6 +32,8 @@ This panel is designed to work defensively against partial schemas. Missing opti
 
 Migration file:
 - `supabase/migrations/20260306160000_admin_panel_core.sql`
+- `supabase/migrations/20260312113000_verification_review_queue_alignment.sql`
+- `supabase/migrations/20260312170000_internal_hub_workspace.sql`
 
 Creates:
 - `public.incidents`

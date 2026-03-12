@@ -6,6 +6,7 @@ import {
   Activity,
   AlertTriangle,
   BookCheck,
+  Briefcase,
   ClipboardList,
   LayoutDashboard,
   Settings,
@@ -22,10 +23,11 @@ const navItems = [
   { href: "/reservations", label: "Reservations", icon: ClipboardList },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/audit-logs", label: "Audit Logs", icon: BookCheck },
-  { href: "/settings", label: "Settings", icon: Settings }
+  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/internal-hub", label: "Team Management", icon: Briefcase }
 ] as const;
 
-export function Sidebar() {
+export function Sidebar({ hasPendingVerifications }: { hasPendingVerifications: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -33,17 +35,31 @@ export function Sidebar() {
       <nav className="mb-3 flex gap-2 overflow-x-auto rounded-xl border border-border bg-surface-elevated p-2 lg:hidden">
         {navItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isTeamManagement = item.href === "/internal-hub";
+          const showPendingIndicator = item.href === "/verifications" && hasPendingVerifications;
 
           return (
             <Link
               key={`mobile-${item.href}`}
               href={item.href}
               className={cn(
-                "shrink-0 rounded-md px-3 py-1.5 text-xs font-medium",
-                active ? "bg-primary text-white" : "bg-surface-muted text-text-muted"
+                "inline-flex shrink-0 items-center rounded-md px-3 py-1.5 text-xs font-medium",
+                isTeamManagement
+                  ? active
+                    ? "bg-[#0f2f6f] text-white"
+                    : "bg-[#17468f] text-white active:bg-[#0f2f6f]"
+                  : active
+                    ? "bg-primary text-white"
+                    : "bg-surface-muted text-text-muted"
               )}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {showPendingIndicator ? (
+                <span className="ml-2 inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-red-500" />
+                  <span className="sr-only">Pending verification requests</span>
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -62,6 +78,8 @@ export function Sidebar() {
           {navItems.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
+            const isTeamManagement = item.href === "/internal-hub";
+            const showPendingIndicator = item.href === "/verifications" && hasPendingVerifications;
 
             return (
               <Link
@@ -69,11 +87,23 @@ export function Sidebar() {
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                  active ? "bg-primary text-white shadow-sm" : "text-text-muted hover:bg-surface-muted hover:text-text"
+                isTeamManagement
+                  ? active
+                    ? "bg-[#0f2f6f] text-white shadow-[0_8px_16px_rgba(15,47,111,0.35)]"
+                    : "bg-[#17468f] text-white shadow-[0_8px_16px_rgba(23,70,143,0.25)] hover:bg-[#123a79] active:bg-[#0f2f6f]"
+                  : active
+                    ? "bg-primary text-white shadow-sm"
+                    : "text-text-muted hover:bg-surface-muted hover:text-text"
                 )}
               >
                 <Icon size={16} />
-                {item.label}
+                <span>{item.label}</span>
+                {showPendingIndicator ? (
+                  <span className="ml-auto inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white/50" />
+                    <span className="sr-only">Pending verification requests</span>
+                  </span>
+                ) : null}
               </Link>
             );
           })}

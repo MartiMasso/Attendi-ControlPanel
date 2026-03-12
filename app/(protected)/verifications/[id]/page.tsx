@@ -21,6 +21,8 @@ export default async function VerificationDetailPage({ params }: { params: { id:
   }
 
   const request = detail.request;
+  const profile = detail.profile;
+  const parsed = request.parsed_payload;
 
   return (
     <div className="space-y-6">
@@ -32,19 +34,73 @@ export default async function VerificationDetailPage({ params }: { params: { id:
       <KeyValueList
         items={[
           { label: "User", value: String(request.user_full_name ?? request.user_username ?? request.user_id) },
+          { label: "User ID", value: String(request.user_id) },
+          { label: "Login Email", value: String(request.login_email ?? profile?.login_email ?? "-") },
+          { label: "Request Status", value: <StatusBadge value={String(request.status)} /> },
           { label: "Requested Account Type", value: String(request.requested_account_type) },
-          { label: "Tax ID", value: String(request.tax_id) },
+          { label: "Current Account Type", value: String(request.current_account_type ?? profile?.account_type ?? "-") },
+          { label: "Legal Name", value: String(request.legal_name ?? "-") },
+          { label: "Tax ID", value: String(request.tax_id ?? "-") },
           { label: "Company Email", value: String(request.company_email ?? "-") },
-          { label: "Status", value: <StatusBadge value={String(request.status)} /> },
-          { label: "Submitted", value: formatDate(String(request.submitted_at)) },
-          { label: "Reviewed", value: formatDate(String(request.reviewed_at ?? "")) },
-          { label: "Review Note", value: String(request.review_note ?? "-") }
+          { label: "Company Phone", value: String(request.company_phone ?? "-") }
         ]}
       />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <VerificationReviewForm requestId={String(request.id)} />
-        <EntityPreview title="Business / legal details" value={detail.businessDetails} />
+        <Card className="space-y-3">
+          <h2 className="text-sm font-semibold text-text">Payload (parsed)</h2>
+          <KeyValueList
+            items={[
+              { label: "Source", value: parsed.source || "-" },
+              { label: "Request Kind", value: parsed.request_kind ?? "-" },
+              { label: "Category", value: parsed.category ?? "-" },
+              { label: "Address Street", value: parsed.address.street ?? "-" },
+              { label: "Address Number", value: parsed.address.street_number ?? "-" },
+              { label: "Postal Code", value: parsed.address.postal_code ?? "-" },
+              { label: "City", value: parsed.address.city ?? "-" },
+              { label: "Opening Hours (Mon-Fri)", value: parsed.opening_hours.mon_fri ?? "-" },
+              { label: "Opening Hours (Saturday)", value: parsed.opening_hours.saturday ?? "-" },
+              { label: "Opening Hours (Sunday)", value: parsed.opening_hours.sunday ?? "-" },
+              { label: "Contact Phone", value: parsed.contact.phone ?? "-" }
+            ]}
+          />
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card className="space-y-3">
+          <h2 className="text-sm font-semibold text-text">Current Profile State</h2>
+          <KeyValueList
+            items={[
+              { label: "Profile Account Type", value: profile?.account_type ?? "-" },
+              { label: "Profile Verification Status", value: <StatusBadge value={profile?.verification_status ?? "-"} /> },
+              { label: "Can Publish", value: String(profile?.can_publish ?? "-") }
+            ]}
+          />
+        </Card>
+
+        <Card className="space-y-3">
+          <h2 className="text-sm font-semibold text-text">Timeline</h2>
+          <KeyValueList
+            items={[
+              { label: "Created At", value: formatDate(request.created_at) },
+              { label: "Updated At", value: formatDate(request.updated_at) },
+              { label: "Last Submitted At", value: formatDate(request.last_submitted_at) },
+              { label: "Last Admin Email Sent", value: formatDate(request.last_admin_email_sent_at) },
+              { label: "Reminder Count", value: String(request.reminder_count) },
+              { label: "Last Email Action", value: request.last_email_action ?? "-" },
+              { label: "Reviewed At", value: formatDate(request.reviewed_at) },
+              { label: "Reviewed By", value: request.reviewed_by ?? "-" },
+              { label: "Review Notes", value: request.review_notes ?? request.review_note ?? "-" }
+            ]}
+          />
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <EntityPreview title="Current business_details" value={detail.businessDetailsCurrent} />
+        <EntityPreview title="Original verification payload (raw)" value={request.payload} />
       </div>
 
       <Card className="space-y-3">
@@ -83,10 +139,7 @@ export default async function VerificationDetailPage({ params }: { params: { id:
             </TableBody>
           </DataTable>
         ) : (
-          <EmptyState
-            title="No documents found"
-            description="No related files were found in business_documents for this user."
-          />
+          <EmptyState title="No documents found" description="No related files were found in business_documents for this user." />
         )}
       </Card>
 

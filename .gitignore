@@ -18,5 +18,6 @@ pnpm-debug.log*
 
 # build
 coverage
+.test-dist
 
 *.tsbuildinfo

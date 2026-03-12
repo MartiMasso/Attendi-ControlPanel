@@ -1,12 +1,57 @@
 import { NextResponse } from "next/server";
 
 import { getActiveAdminSession } from "@/lib/auth/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { mapVerificationDecisionToStatus } from "@/lib/verification-requests";
+import { isMissingColumnError } from "@/lib/supabase/errors";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { createAuditLogEntry } from "@/services/audit-log-service";
+import type { VerificationRequestDecision } from "@/types";
 
 interface Payload {
-  decision?: "approve" | "reject";
+  decision?: VerificationRequestDecision;
   note?: string | null;
+}
+
+function normalizeNote(note: unknown) {
+  if (typeof note !== "string") {
+    return null;
+  }
+
+  const trimmed = note.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+async function updateReviewNote(
+  requestId: string,
+  values: Record<string, unknown>,
+  note: string | null,
+  serviceClient: NonNullable<ReturnType<typeof createSupabaseServiceClient>>
+) {
+  const withReviewNotes = await serviceClient
+    .from("verification_requests")
+    .update({
+      ...values,
+      review_notes: note
+    })
+    .eq("id", requestId);
+
+  if (!withReviewNotes.error) {
+    return null;
+  }
+
+  if (!isMissingColumnError(withReviewNotes.error)) {
+    return withReviewNotes.error;
+  }
+
+  const withLegacyReviewNote = await serviceClient
+    .from("verification_requests")
+    .update({
+      ...values,
+      review_note: note
+    })
+    .eq("id", requestId);
+
+  return withLegacyReviewNote.error;
 }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
@@ -17,16 +62,22 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 
   const payload = (await request.json().catch(() => ({}))) as Payload;
-
-  if (!payload.decision || !["approve", "reject"].includes(payload.decision)) {
+  if (!payload.decision || !["approve", "reject", "needs_changes"].includes(payload.decision)) {
     return NextResponse.json({ error: "Invalid decision" }, { status: 400 });
   }
 
-  const supabase = createSupabaseServerClient();
+  const serviceClient = createSupabaseServiceClient();
 
-  const { data: verification, error: verificationError } = await supabase
+  if (!serviceClient) {
+    return NextResponse.json(
+      { error: "SUPABASE_SERVICE_ROLE_KEY is required for verification review actions." },
+      { status: 500 }
+    );
+  }
+
+  const { data: verification, error: verificationError } = await serviceClient
     .from("verification_requests")
-    .select("id,user_id,requested_account_type")
+    .select("id,user_id,requested_account_type,status")
     .eq("id", params.id)
     .maybeSingle();
 
@@ -38,49 +89,42 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json({ error: "Verification request not found" }, { status: 404 });
   }
 
-  const nextStatus = payload.decision === "approve" ? "approved" : "rejected";
-
-  const { error: updateVerificationError } = await supabase
-    .from("verification_requests")
-    .update({
+  const note = normalizeNote(payload.note);
+  const nextStatus = mapVerificationDecisionToStatus(payload.decision);
+  const reviewedAt = new Date().toISOString();
+  const updateError = await updateReviewNote(
+    params.id,
+    {
       status: nextStatus,
-      reviewed_at: new Date().toISOString(),
+      reviewed_at: reviewedAt,
       reviewed_by: session.userId,
-      review_note: payload.note ?? null,
-      rejected_reason: payload.decision === "reject" ? payload.note ?? null : null,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", params.id);
+      rejected_reason: payload.decision === "reject" ? note : null,
+      updated_at: reviewedAt
+    },
+    note,
+    serviceClient
+  );
 
-  if (updateVerificationError) {
-    return NextResponse.json({ error: updateVerificationError.message }, { status: 500 });
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  const profileUpdate =
-    payload.decision === "approve"
-      ? {
-          account_type: verification.requested_account_type,
-          verification_status: "approved"
-        }
-      : {
-          verification_status: "rejected"
-        };
-
-  const { error: profileUpdateError } = await supabase.from("profiles").update(profileUpdate).eq("id", verification.user_id);
-
-  if (profileUpdateError) {
-    return NextResponse.json({ error: profileUpdateError.message }, { status: 500 });
-  }
-
-  await createAuditLogEntry(supabase, {
+  await createAuditLogEntry(serviceClient, {
     adminUserId: session.userId,
-    action: payload.decision === "approve" ? "verification_approved" : "verification_rejected",
+    action:
+      payload.decision === "approve"
+        ? "verification_approved"
+        : payload.decision === "reject"
+          ? "verification_rejected"
+          : "verification_needs_changes",
     entityType: "verification",
     entityId: params.id,
     metadata: {
       reviewedUserId: verification.user_id,
+      previousStatus: verification.status,
+      nextStatus,
       requestedAccountType: verification.requested_account_type,
-      note: payload.note ?? null
+      note
     }
   });
 
