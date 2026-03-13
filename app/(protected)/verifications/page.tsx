@@ -150,7 +150,10 @@ export default async function VerificationsPage({ searchParams }: VerificationsP
                   <TableCell>{formatDate(lastActivity)}</TableCell>
                   <TableCell>{request.reminder_count}</TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/verifications/${request.id}`} className="text-sm font-medium text-primary hover:underline">
+                    <Link
+                      href={`/verifications/${encodeURIComponent(String(request.id))}`}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
                       View
                     </Link>
                   </TableCell>

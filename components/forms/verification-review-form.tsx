@@ -48,34 +48,48 @@ export function VerificationReviewForm({ requestId }: { requestId: string }) {
         return;
       }
 
-      const payload = (await response.json().catch(() => null)) as { status?: string } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        status?: string;
+        profileAccountType?: string | null;
+        profileVerificationStatus?: string | null;
+      } | null;
       const status = payload?.status ? String(payload.status).replace(/_/g, " ") : "updated";
-      setToast({ tone: "success", message: `Verification request ${status}.` });
+      const profileStatus = payload?.profileVerificationStatus ? String(payload.profileVerificationStatus).replace(/_/g, " ") : null;
+      const profileType = payload?.profileAccountType ? String(payload.profileAccountType) : null;
+
+      if (profileStatus || profileType) {
+        setToast({
+          tone: "success",
+          message: `Solicitud ${status}. Perfil: ${profileType ?? "-"} / ${profileStatus ?? "-"}.`
+        });
+      } else {
+        setToast({ tone: "success", message: `Verification request ${status}.` });
+      }
       router.refresh();
     });
   };
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-surface-elevated p-4">
-      <h3 className="text-sm font-semibold text-text">Review request</h3>
+      <h3 className="text-sm font-semibold text-text">Revisar solicitud</h3>
       <Textarea
         value={note}
         onChange={(event) => setNote(event.target.value)}
-        placeholder="Optional internal reason / review note"
+        placeholder="Motivo interno opcional"
       />
       {error ? <p className="text-xs text-danger">{error}</p> : null}
       <div className="flex items-center gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={() => runAction("approve")} disabled={isPending}>
-          Approve
+        <Button type="button" variant="primary" size="sm" onClick={() => runAction("approve")} disabled={isPending}>
+          Confirmar validación
         </Button>
         <Button type="button" variant="danger" size="sm" onClick={() => runAction("reject")} disabled={isPending}>
-          Reject
+          Rechazar
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => runAction("needs_changes")} disabled={isPending}>
-          Needs changes
+          Solicitar cambios
         </Button>
       </div>
-      {isPending ? <p className="text-xs text-text-muted">Saving review...</p> : null}
+      {isPending ? <p className="text-xs text-text-muted">Guardando revisión...</p> : null}
       {toast ? (
         <div
           className={`fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm shadow-lg ${

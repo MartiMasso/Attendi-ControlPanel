@@ -11,6 +11,7 @@ import {
 import { isUUID } from "@/lib/utils";
 import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { getAdminFlags, getAdminNotes } from "@/services/admin-meta-service";
 import { getEmailMapByUserIds, getProfilesMap, type ProfileIdentity } from "@/services/profile-helpers";
 import type { VerificationRequestPayload, VerificationRequestRow, VerificationStatus } from "@/types";
@@ -530,16 +531,72 @@ export async function hasPendingVerificationRequests() {
 }
 
 export async function getVerificationRequestDetail(requestId: string): Promise<VerificationRequestDetailResult | null> {
-  const supabase = createSupabaseServerClient();
+  const serverClient = createSupabaseServerClient();
+  const serviceClient = createSupabaseServiceClient();
 
-  const { data: request, error: requestError } = await supabase.from("verification_requests").select("*").eq("id", requestId).maybeSingle();
+  const serverResult = await serverClient.from("verification_requests").select("*").eq("id", requestId).maybeSingle();
 
-  if (requestError) {
-    if (isMissingDatabaseObject(requestError)) {
-      return null;
+  let request = serverResult.data as Record<string, unknown> | null;
+  let readClient = serverClient;
+
+  if (serverResult.error && !isMissingDatabaseObject(serverResult.error) && !isPermissionError(serverResult.error)) {
+    throw new Error(serverResult.error.message);
+  }
+
+  if (!request && serviceClient) {
+    const serviceResult = await serviceClient.from("verification_requests").select("*").eq("id", requestId).maybeSingle();
+
+    if (serviceResult.error) {
+      if (!isMissingDatabaseObject(serviceResult.error) && !isPermissionError(serviceResult.error)) {
+        throw new Error(serviceResult.error.message);
+      }
+    } else if (serviceResult.data) {
+      request = serviceResult.data as Record<string, unknown>;
+      readClient = serviceClient;
     }
+  }
 
-    throw new Error(requestError.message);
+  if (!request) {
+    const viewResult = await serverClient
+      .from("admin_verification_requests_v1")
+      .select(
+        "request_id,user_id,target_account_type,legal_name,tax_id,company_email,company_phone,payload,request_source_normalized,request_kind,request_status,submitted_at,last_submitted_at,last_admin_email_sent_at,last_email_action,reminder_count,updated_at,reviewed_at,reviewed_by,review_note,review_notes,admin_notes,rejected_reason,created_at"
+      )
+      .eq("request_id", requestId)
+      .maybeSingle();
+
+    if (viewResult.error) {
+      if (!isMissingDatabaseObject(viewResult.error) && !isPermissionError(viewResult.error)) {
+        throw new Error(viewResult.error.message);
+      }
+    } else if (viewResult.data) {
+      const viewRow = viewResult.data as Record<string, unknown>;
+      request = {
+        id: viewRow.request_id,
+        user_id: viewRow.user_id,
+        requested_account_type: viewRow.target_account_type,
+        legal_name: viewRow.legal_name,
+        tax_id: viewRow.tax_id,
+        company_email: viewRow.company_email,
+        company_phone: viewRow.company_phone,
+        payload: viewRow.payload,
+        status: viewRow.request_status,
+        submitted_at: viewRow.submitted_at,
+        last_submitted_at: viewRow.last_submitted_at,
+        last_admin_email_sent_at: viewRow.last_admin_email_sent_at,
+        last_email_action: viewRow.last_email_action,
+        reminder_count: viewRow.reminder_count,
+        updated_at: viewRow.updated_at,
+        reviewed_at: viewRow.reviewed_at,
+        reviewed_by: viewRow.reviewed_by,
+        review_note: viewRow.review_note,
+        review_notes: viewRow.review_notes,
+        admin_notes: viewRow.admin_notes,
+        rejected_reason: viewRow.rejected_reason,
+        created_at: viewRow.created_at,
+        country_code: null
+      } as Record<string, unknown>;
+    }
   }
 
   if (!request) {
@@ -549,13 +606,13 @@ export async function getVerificationRequestDetail(requestId: string): Promise<V
   const userId = String(request.user_id);
 
   const [profileResult, businessResult, documentsResult, emailMap, notes, flags] = await Promise.all([
-    supabase
+    readClient
       .from("profiles")
       .select("id,full_name,username,account_type,verification_status,can_publish")
       .eq("id", userId)
       .maybeSingle(),
-    supabase.from("business_details").select("*").eq("user_id", userId).maybeSingle(),
-    supabase
+    readClient.from("business_details").select("*").eq("user_id", userId).maybeSingle(),
+    readClient
       .from("business_documents")
       .select("id,document_name,document_type,public_url,uploaded_at,verified,verified_at,notes")
       .eq("user_id", userId)

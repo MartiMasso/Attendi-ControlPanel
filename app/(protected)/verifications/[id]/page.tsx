@@ -13,8 +13,23 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDate } from "@/lib/utils";
 import { getVerificationRequestDetail } from "@/services/verifications-service";
 
-export default async function VerificationDetailPage({ params }: { params: { id: string } }) {
-  const detail = await getVerificationRequestDetail(params.id);
+function normalizeRequestId(value: string) {
+  try {
+    return decodeURIComponent(value).trim();
+  } catch {
+    return value.trim();
+  }
+}
+
+export default async function VerificationDetailPage({ params }: { params: { id: string } | Promise<{ id: string }> }) {
+  const resolvedParams = await Promise.resolve(params);
+  const requestId = normalizeRequestId(String(resolvedParams.id ?? ""));
+
+  if (!requestId) {
+    notFound();
+  }
+
+  const detail = await getVerificationRequestDetail(requestId);
 
   if (!detail) {
     notFound();
@@ -37,12 +52,12 @@ export default async function VerificationDetailPage({ params }: { params: { id:
           { label: "User ID", value: String(request.user_id) },
           { label: "Login Email", value: String(request.login_email ?? profile?.login_email ?? "-") },
           { label: "Request Status", value: <StatusBadge value={String(request.status)} /> },
-          { label: "Requested Account Type", value: String(request.requested_account_type) },
-          { label: "Current Account Type", value: String(request.current_account_type ?? profile?.account_type ?? "-") },
-          { label: "Legal Name", value: String(request.legal_name ?? "-") },
-          { label: "Tax ID", value: String(request.tax_id ?? "-") },
-          { label: "Company Email", value: String(request.company_email ?? "-") },
-          { label: "Company Phone", value: String(request.company_phone ?? "-") }
+          { label: "Tipo de perfil solicitado", value: String(request.requested_account_type) },
+          { label: "Tipo de perfil actual", value: String(request.current_account_type ?? profile?.account_type ?? "-") },
+          { label: "Nombre legal de la empresa", value: String(request.legal_name ?? "-") },
+          { label: "NIF / CIF", value: String(request.tax_id ?? "-") },
+          { label: "Correo corporativo", value: String(request.company_email ?? "-") },
+          { label: "Teléfono", value: String(request.company_phone ?? "-") }
         ]}
       />
 
