@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Search } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -14,12 +15,21 @@ const routeTitles: Record<string, string> = {
   verifications: "Verifications",
   reservations: "Reservations",
   incidents: "Incidents",
+  feedback: "Feedback",
   "audit-logs": "Audit Logs",
   settings: "Settings",
   "internal-hub": "Team Management"
 };
 
-export function Topbar({ displayName, role }: { displayName: string; role: string }) {
+export function Topbar({
+  displayName,
+  role,
+  pendingFeedbackCount
+}: {
+  displayName: string;
+  role: string;
+  pendingFeedbackCount: number;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -44,7 +54,10 @@ export function Topbar({ displayName, role }: { displayName: string; role: strin
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.08em] text-text-muted">Attendi Internal</p>
-          <h1 className="text-lg font-semibold text-text">{currentSection}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-text">{currentSection}</h1>
+            {pendingFeedbackCount > 0 ? <Badge color="warning">{pendingFeedbackCount} new feedback</Badge> : null}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">

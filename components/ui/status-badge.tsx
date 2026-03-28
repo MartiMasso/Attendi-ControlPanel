@@ -12,7 +12,7 @@ export function StatusBadge({ value }: StatusBadgeProps) {
     return <Badge color="success">{label}</Badge>;
   }
 
-  if (["pending", "in_review", "review", "processing", "open", "needs_changes"].includes(normalized)) {
+  if (["new", "pending", "in_review", "review", "processing", "open", "needs_changes"].includes(normalized)) {
     return <Badge color="warning">{label}</Badge>;
   }
 

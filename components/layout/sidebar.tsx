@@ -9,6 +9,7 @@ import {
   Briefcase,
   ClipboardList,
   LayoutDashboard,
+  MessageSquare,
   Settings,
   ShieldCheck,
   Users
@@ -22,12 +23,19 @@ const navItems = [
   { href: "/verifications", label: "Verifications", icon: ShieldCheck },
   { href: "/reservations", label: "Reservations", icon: ClipboardList },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
+  { href: "/feedback", label: "Feedback", icon: MessageSquare },
   { href: "/audit-logs", label: "Audit Logs", icon: BookCheck },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/internal-hub", label: "Team Management", icon: Briefcase }
 ] as const;
 
-export function Sidebar({ hasPendingVerifications }: { hasPendingVerifications: boolean }) {
+export function Sidebar({
+  hasPendingVerifications,
+  pendingFeedbackCount
+}: {
+  hasPendingVerifications: boolean;
+  pendingFeedbackCount: number;
+}) {
   const pathname = usePathname();
 
   return (
@@ -37,6 +45,7 @@ export function Sidebar({ hasPendingVerifications }: { hasPendingVerifications: 
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const isTeamManagement = item.href === "/internal-hub";
           const showPendingIndicator = item.href === "/verifications" && hasPendingVerifications;
+          const showFeedbackCount = item.href === "/feedback" && pendingFeedbackCount > 0;
 
           return (
             <Link
@@ -60,6 +69,11 @@ export function Sidebar({ hasPendingVerifications }: { hasPendingVerifications: 
                   <span className="sr-only">Pending verification requests</span>
                 </span>
               ) : null}
+              {showFeedbackCount ? (
+                <span className="ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full bg-[#ffe8cc] px-1.5 text-[11px] font-semibold text-warning">
+                  {pendingFeedbackCount}
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -80,6 +94,7 @@ export function Sidebar({ hasPendingVerifications }: { hasPendingVerifications: 
             const Icon = item.icon;
             const isTeamManagement = item.href === "/internal-hub";
             const showPendingIndicator = item.href === "/verifications" && hasPendingVerifications;
+            const showFeedbackCount = item.href === "/feedback" && pendingFeedbackCount > 0;
 
             return (
               <Link
@@ -102,6 +117,11 @@ export function Sidebar({ hasPendingVerifications }: { hasPendingVerifications: 
                   <span className="ml-auto inline-flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white/50" />
                     <span className="sr-only">Pending verification requests</span>
+                  </span>
+                ) : null}
+                {showFeedbackCount ? (
+                  <span className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-[#ffe8cc] px-1.5 py-0.5 text-[11px] font-semibold text-warning">
+                    {pendingFeedbackCount}
                   </span>
                 ) : null}
               </Link>

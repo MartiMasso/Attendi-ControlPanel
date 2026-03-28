@@ -55,16 +55,22 @@ export async function insertAdminNote(
     createdByAdminId: string;
   }
 ) {
-  const { error } = await supabase.from("admin_notes").insert({
-    entity_type: input.entityType,
-    entity_id: input.entityId,
-    note: input.note,
-    created_by_admin_id: input.createdByAdminId
-  });
+  const { data, error } = await supabase
+    .from("admin_notes")
+    .insert({
+      entity_type: input.entityType,
+      entity_id: input.entityId,
+      note: input.note,
+      created_by_admin_id: input.createdByAdminId
+    })
+    .select("id,entity_type,entity_id,note,created_by_admin_id,created_at")
+    .maybeSingle();
 
   if (error && !isMissingDatabaseObject(error)) {
     throw new Error(error.message);
   }
+
+  return (data as AdminNote | null) ?? null;
 }
 
 export async function insertAdminFlag(

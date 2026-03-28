@@ -12,6 +12,8 @@ export type VerificationStatus =
 
 export type IncidentStatus = "open" | "in_review" | "resolved";
 export type IncidentPriority = "low" | "medium" | "high";
+export type PlatformFeedbackCategory = "suggestion" | "bug" | "other";
+export type PlatformFeedbackStatus = "new" | "in_review" | "resolved" | "closed";
 export type InternalTaskStatus = "todo" | "in_progress" | "blocked" | "done";
 export type InternalTaskPriority = "low" | "medium" | "high" | "urgent";
 export type InternalNoteCategory = "announcement" | "decision" | "reminder" | "resource";
@@ -142,6 +144,22 @@ export interface IncidentRow {
   assigned_admin_user_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PlatformFeedbackRow {
+  id: string;
+  created_at: string;
+  user_id: string | null;
+  display_name: string | null;
+  email: string | null;
+  category: PlatformFeedbackCategory | string;
+  subject: string;
+  message: string;
+  source: string;
+  status: PlatformFeedbackStatus | string;
+  handled_by: string | null;
+  handled_at: string | null;
+  admin_notes: string | null;
 }
 
 export interface InternalHubMember {

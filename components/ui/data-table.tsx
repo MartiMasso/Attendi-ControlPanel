@@ -16,8 +16,16 @@ export function TableBody({ children }: { children: React.ReactNode }) {
   return <tbody className="divide-y divide-border">{children}</tbody>;
 }
 
-export function TableRow({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <tr className={cn("hover:bg-[#f9fbff]", className)}>{children}</tr>;
+export function TableRow({
+  children,
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLTableRowElement> & { children: React.ReactNode }) {
+  return (
+    <tr className={cn("hover:bg-[#f9fbff]", className)} {...props}>
+      {children}
+    </tr>
+  );
 }
 
 export function TableHead({ children, className }: { children: React.ReactNode; className?: string }) {
