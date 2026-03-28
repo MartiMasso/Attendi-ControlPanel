@@ -55,11 +55,14 @@ export function FeedbackManagementForm({
     }).catch(() => null);
 
     if (!response?.ok) {
+      const payload = (await response?.json().catch(() => null)) as { error?: string } | null;
+      setError(payload?.error ?? "Unable to sync notes thread.");
       return false;
     }
 
     const payload = (await response.json().catch(() => null)) as { notes?: AdminNote[] } | null;
     if (!payload?.notes) {
+      setError("Unable to sync notes thread.");
       return false;
     }
 
@@ -79,6 +82,19 @@ export function FeedbackManagementForm({
 
     startTransition(async () => {
       const noteText = note.trim();
+      const optimisticId = `optimistic-${Date.now()}`;
+      const optimisticNote: AdminNote = {
+        id: optimisticId,
+        entity_type: "platform_feedback",
+        entity_id: feedbackId,
+        note: noteText,
+        created_by_admin_id: "pending",
+        created_at: new Date().toISOString()
+      };
+
+      setNotesList((current) => [optimisticNote, ...current]);
+      setNote("");
+
       const response = await fetch("/api/admin/notes", {
         method: "POST",
         headers: {
@@ -93,6 +109,8 @@ export function FeedbackManagementForm({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setNotesList((current) => current.filter((item) => item.id !== optimisticId));
+        setNote(noteText);
         setError(payload?.error ?? "Unable to save note.");
         return;
       }
@@ -100,12 +118,20 @@ export function FeedbackManagementForm({
       const payload = (await response.json().catch(() => null)) as { note?: AdminNote | null } | null;
 
       if (payload?.note?.id) {
-        setNotesList((current) => [payload.note as AdminNote, ...current.filter((item) => item.id !== payload.note?.id)]);
+        setNotesList((current) => {
+          const withoutOptimistic = current.filter((item) => item.id !== optimisticId);
+          return [payload.note as AdminNote, ...withoutOptimistic.filter((item) => item.id !== payload.note?.id)];
+        });
       } else {
-        await syncNotesFromServer();
+        const synced = await syncNotesFromServer();
+        if (!synced) {
+          setNotesList((current) => current.filter((item) => item.id !== optimisticId));
+          setNote(noteText);
+          setError("Note saved, but the thread could not refresh. Reload once to sync.");
+          return;
+        }
       }
 
-      setNote("");
       setSuccess("Note added");
     });
   };
@@ -212,16 +238,20 @@ export function FeedbackManagementForm({
                 <p className="whitespace-pre-wrap text-sm text-text">{item.note}</p>
                 <div className="mt-2 flex items-center justify-between">
                   <p className="text-xs text-text-muted">{formatDate(item.created_at)}</p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteNote(item.id)}
-                    disabled={isPending && deletingNoteId === item.id}
-                    className="text-danger hover:bg-[#fdebed] hover:text-danger"
-                  >
-                    {isPending && deletingNoteId === item.id ? "Deleting..." : "Delete"}
-                  </Button>
+                  {item.id.startsWith("optimistic-") ? (
+                    <p className="text-xs text-text-muted">Syncing...</p>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteNote(item.id)}
+                      disabled={isPending && deletingNoteId === item.id}
+                      className="text-danger hover:bg-[#fdebed] hover:text-danger"
+                    >
+                      {isPending && deletingNoteId === item.id ? "Deleting..." : "Delete"}
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getActiveAdminSession } from "@/lib/auth/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { isMissingDatabaseObject } from "@/lib/supabase/errors";
 import { insertAdminNote } from "@/services/admin-meta-service";
 import { createAuditLogEntry } from "@/services/audit-log-service";
 
@@ -36,6 +37,16 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (error) {
+    if (isMissingDatabaseObject(error)) {
+      return NextResponse.json(
+        {
+          error:
+            "Missing admin_notes table/policies. Run migration supabase/migrations/20260306160000_admin_panel_core.sql."
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -64,6 +75,16 @@ export async function POST(request: Request) {
       note: payload.note.trim(),
       createdByAdminId: session.admin.id
     });
+
+    if (!note) {
+      return NextResponse.json(
+        {
+          error:
+            "admin_notes insert did not persist. Ensure migration supabase/migrations/20260306160000_admin_panel_core.sql is applied."
+        },
+        { status: 500 }
+      );
+    }
 
     await createAuditLogEntry(supabase, {
       adminUserId: session.userId,
