@@ -29,6 +29,7 @@ Public:
 
 Private (admin-only):
 - `/dashboard`
+- `/business-performance`
 - `/users`
 - `/users/[id]`
 - `/verifications`
@@ -128,6 +129,7 @@ docs/
 - Admin-only route protection
 - Sidebar/topbar private app shell
 - KPI dashboard with recent activity
+- Business Performance section with monthly business/hotel metrics and commission calculator
 - User listing + detail + internal notes/flags
 - Manual user account-type upgrades/downgrades (`consumer` / `business` / `hotel`)
 - Verification listing + detail + approve/reject actions

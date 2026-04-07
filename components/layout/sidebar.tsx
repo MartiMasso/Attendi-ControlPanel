@@ -9,6 +9,7 @@ import {
   Briefcase,
   ClipboardList,
   LayoutDashboard,
+  LineChart,
   MessageSquare,
   Settings,
   ShieldCheck,
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/business-performance", label: "Business Performance", icon: LineChart },
   { href: "/users", label: "Users", icon: Users },
   { href: "/verifications", label: "Verifications", icon: ShieldCheck },
   { href: "/reservations", label: "Reservations", icon: ClipboardList },

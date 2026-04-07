@@ -11,6 +11,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const routeTitles: Record<string, string> = {
   dashboard: "Dashboard",
+  "business-performance": "Business Performance",
   users: "Users",
   verifications: "Verifications",
   reservations: "Reservations",

@@ -34,12 +34,16 @@ Migration file:
 - `supabase/migrations/20260306160000_admin_panel_core.sql`
 - `supabase/migrations/20260312113000_verification_review_queue_alignment.sql`
 - `supabase/migrations/20260312170000_internal_hub_workspace.sql`
+- `supabase/migrations/20260407163000_business_performance_commissions.sql`
 
 Creates:
 - `public.incidents`
 - `public.admin_notes`
 - `public.admin_flags`
 - `public.admin_audit_logs`
+- `public.commission_agent_entity_assignments`
+- `public.platform_commission_settings` (singleton `k_hotel`)
+- `public.hotel_company_commission_overrides` (`ce_p_pct` by hotel/company pair)
 
 Also creates:
 - `public.is_active_admin(uuid)` helper

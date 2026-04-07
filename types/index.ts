@@ -1,4 +1,6 @@
 export type AccountType = "consumer" | "business" | "hotel";
+export type BusinessEntityType = "business" | "hotel";
+export type BusinessEntityTypeFilter = "all" | BusinessEntityType;
 
 export type VerificationStatus =
   | "not_required"
@@ -245,4 +247,56 @@ export interface RecentActivityItem {
   entity_id: string;
   created_at: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface BusinessPerformanceMetrics {
+  gmv: number;
+  attendiProfit: number;
+  operations: number;
+  paidOperations: number;
+  refundedOperations: number;
+  cancelledOperations: number;
+  averageTicket: number;
+}
+
+export interface BusinessPerformanceMonthlyPoint {
+  key: string;
+  label: string;
+  metrics: BusinessPerformanceMetrics;
+}
+
+export interface BusinessPerformanceEntityRow {
+  id: string;
+  name: string;
+  username: string | null;
+  email: string | null;
+  entityType: BusinessEntityType;
+  latitude: number | null;
+  longitude: number | null;
+  preciseLocation: string | null;
+  assignedAgentUserId: string | null;
+  assignedAgentName: string | null;
+  periodMetrics: BusinessPerformanceMetrics;
+  lastThreeMonthsGmv: number[];
+}
+
+export interface BusinessPerformanceEntityDetail {
+  id: string;
+  name: string;
+  username: string | null;
+  email: string | null;
+  entityType: BusinessEntityType;
+  latitude: number | null;
+  longitude: number | null;
+  preciseLocation: string | null;
+  assignedAgentUserId: string | null;
+  assignedAgentName: string | null;
+  periodMetrics: BusinessPerformanceMetrics;
+  monthlySeries: BusinessPerformanceMonthlyPoint[];
+}
+
+export interface BusinessPerformanceAgentOption {
+  userId: string;
+  name: string;
+  activeEntities: number;
 }
