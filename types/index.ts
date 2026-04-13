@@ -49,10 +49,39 @@ export interface UserRow {
   last_seen_at: string | null;
 }
 
+export interface HotelPartnerCommissionRow {
+  company_user_id: string;
+  company_name: string;
+  company_email: string | null;
+  account_type: AccountType | string | null;
+  commission_standard_pct: number;
+  commission_effective_pct: number;
+  commission_override_pct: number | null;
+  commission_mode: "standard" | "custom";
+  linked_at: string | null;
+  updated_at: string | null;
+}
+
+export interface HotelCommissionOverview {
+  own_services_commission_pct: number;
+  k_hotel: number;
+  k_hotel_pct: number;
+  partners: HotelPartnerCommissionRow[];
+}
+
+export interface HotelRevenueOverview {
+  total_hotel_received: number;
+  total_attendi_earned: number;
+  operations: number;
+  currency: string;
+}
+
 export interface UserDetail {
   profile: UserRow;
   businessDetails: Record<string, unknown> | null;
   hotelDetails: Record<string, unknown> | null;
+  hotelCommissionOverview: HotelCommissionOverview | null;
+  hotelRevenueOverview: HotelRevenueOverview | null;
   products: Array<Record<string, unknown>>;
   reservations: Array<Record<string, unknown>>;
   notes: AdminNote[];
@@ -251,8 +280,14 @@ export interface RecentActivityItem {
 
 export interface BusinessPerformanceMetrics {
   gmv: number;
+  attendiNet: number;
   attendiProfit: number;
+  ownerEarnings: number;
+  hotelEarnings: number;
+  refunds: number;
+  customerPaid: number;
   operations: number;
+  operationsWithCashMovement: number;
   paidOperations: number;
   refundedOperations: number;
   cancelledOperations: number;
@@ -277,7 +312,61 @@ export interface BusinessPerformanceEntityRow {
   assignedAgentUserId: string | null;
   assignedAgentName: string | null;
   periodMetrics: BusinessPerformanceMetrics;
+  trailingMetrics: {
+    last3Months: BusinessPerformanceMetrics;
+    last6Months: BusinessPerformanceMetrics;
+    last12Months: BusinessPerformanceMetrics;
+  };
   lastThreeMonthsGmv: number[];
+}
+
+export type BusinessPerformanceFlowType =
+  | "direct"
+  | "hotel_linked_external"
+  | "hotel_own_product"
+  | "standard"
+  | "hotel_link_external";
+export type BusinessPerformanceLedgerStatus = "reconciled" | "estimated";
+export type BusinessPerformanceAmountSource = "persisted" | "formula";
+export type BusinessPerformanceFeeSource = "real" | "estimated";
+
+export interface BusinessPerformanceLedgerRow {
+  reservationId: string;
+  ownerUserId: string | null;
+  ownerType: BusinessEntityType | string | null;
+  buyerUserId: string | null;
+  linkedHotelId: string | null;
+  flowType: BusinessPerformanceFlowType;
+  operationMode?: "direct" | "hotel_linked_external" | "hotel_own_product";
+  feeSource?: BusinessPerformanceFeeSource;
+  productId: string | null;
+  productTitle: string | null;
+  createdAt: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  effectiveAt: string | null;
+  effectiveAtMonth: string | null;
+  status: string | null;
+  pBaseCents: number;
+  insuranceCents: number;
+  cclCents: number;
+  grossCustomerCents: number;
+  refundedCustomerCents: number;
+  retainedBaseCents: number;
+  ownerAmountCents: number;
+  ownerAmountSource: BusinessPerformanceAmountSource;
+  hotelAmountCents: number;
+  attendiAmountBeforeStripeCents: number;
+  stripeFeeCents: number;
+  attendiNetCents: number;
+  cpPctEffective: number | null;
+  cePPctEffective: number | null;
+  chPctEffective: number | null;
+  kHotelEffective: number | null;
+  retentionPctEffective: number | null;
+  isEstimated: boolean;
+  estimationReason: string | null;
+  ledgerStatus: BusinessPerformanceLedgerStatus;
 }
 
 export interface BusinessPerformanceEntityDetail {
@@ -293,6 +382,13 @@ export interface BusinessPerformanceEntityDetail {
   assignedAgentName: string | null;
   periodMetrics: BusinessPerformanceMetrics;
   monthlySeries: BusinessPerformanceMonthlyPoint[];
+  history: {
+    rows: BusinessPerformanceLedgerRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+  };
+  historyProductOptions: Array<{ id: string; title: string }>;
 }
 
 export interface BusinessPerformanceAgentOption {

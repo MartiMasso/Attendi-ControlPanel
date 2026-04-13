@@ -6,17 +6,22 @@ import {
   formatCentsToEuros,
   normalizeBusinessPerformanceFilters,
   type AggregatedPerformanceCents,
+  type BusinessPerformancePeriodBounds,
   type ReservationPerformanceEvent
 } from "@/lib/business-performance";
+import { computeBusinessPerformanceLedgerMath } from "@/lib/business-performance-ledger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import { getProfilesMap } from "@/services/profile-helpers";
 import type {
   BusinessEntityType,
-  BusinessEntityTypeFilter,
   BusinessPerformanceAgentOption,
+  BusinessPerformanceAmountSource,
   BusinessPerformanceEntityDetail,
   BusinessPerformanceEntityRow,
+  BusinessPerformanceFlowType,
+  BusinessPerformanceLedgerRow,
+  BusinessPerformanceLedgerStatus,
   BusinessPerformanceMetrics,
   BusinessPerformanceMonthlyPoint
 } from "@/types";
@@ -26,33 +31,9 @@ interface RawEntityRow {
   full_name: string | null;
   username: string | null;
   account_type: BusinessEntityType;
-  comision_propietario: number | null;
-  comision_hotel: number | null;
   latitude: number | null;
   longitude: number | null;
   precise_location: string | null;
-}
-
-interface ProductOwnerRow {
-  id: string;
-  user_id: string | null;
-}
-
-interface ReservationRow {
-  id: string;
-  product_id: string | null;
-  source_hotel_id: string | null;
-  status: string | null;
-  created_at: string | null;
-  payment_authorized_at: string | null;
-  refunded_at: string | null;
-  rental_amount: number | null;
-  addons_amount: number | null;
-  insurance_amount: number | null;
-  fee_amount: number | null;
-  importe: number | null;
-  refunded_amount: number | null;
-  refund_status: string | null;
 }
 
 interface AgentAssignmentRow {
@@ -63,31 +44,63 @@ interface AgentAssignmentRow {
   created_at: string | null;
 }
 
-interface CommissionSettingRow {
-  id: number;
-  k_hotel: number | null;
+interface LedgerViewRow {
+  reservation_id: string;
+  product_id: string | null;
+  owner_user_id: string | null;
+  owner_account_type: string | null;
+  linked_hotel_id: string | null;
+  buyer_user_id: string | null;
+  status: string | null;
+  rental_type: string | null;
+  payment_captured: boolean | null;
+  payment_bypassed: boolean | null;
+  payment_intent_id: string | null;
+  charge_id: string | null;
+  balance_transaction_id: string | null;
+  currency: string | null;
+  effective_at: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  customer_paid_cents: number | null;
+  refunded_cents: number | null;
+  owner_earnings_cents: number | null;
+  hotel_earnings_cents: number | null;
+  attendi_before_stripe_cents: number | null;
+  stripe_fee_cents: number | null;
+  attendi_net_cents: number | null;
+  fee_estimated: boolean | null;
+  operation_mode: string | null;
 }
 
-interface CommissionOverrideRow {
-  hotel_id: string;
-  company_id: string;
-  ce_p_pct: number;
-  active: boolean;
-}
-
-interface EntityCommissionMeta {
-  accountType: BusinessEntityType;
-  ownerPct: number;
-  hotelPct: number;
+interface ProductTitleRow {
+  id: string;
+  title: string | null;
 }
 
 interface QueryInput {
   year?: string;
   month?: string;
+  dateFrom?: string;
+  dateTo?: string;
   entityType?: string;
+  status?: string;
+  operationMode?: string;
+  hotelLink?: string;
   q?: string;
   agent?: string;
   entity?: string;
+  historyStatus?: string;
+  historyProduct?: string;
+  historyPage?: string;
+  historyPageSize?: string;
+}
+
+interface LedgerRowInternal extends BusinessPerformanceLedgerRow {
+  entityId: string;
+  entityType: BusinessEntityType;
 }
 
 export interface BusinessPerformancePageData {
@@ -103,8 +116,10 @@ export interface BusinessPerformancePageData {
 }
 
 const MAX_KPI_ENTITY_SCOPE = 2000;
-const RESERVATION_CHUNK_SIZE = 250;
-const DEFAULT_K_HOTEL = 0.4;
+const LEDGER_ENTITY_CHUNK_SIZE = 150;
+
+type OperationModeFilter = "all" | "direct" | "hotel_linked_external" | "hotel_own_product";
+type OperationMode = "direct" | "hotel_linked_external" | "hotel_own_product";
 
 function sanitizeSearchQuery(value: string) {
   return value.replace(/[,()]/g, " ").trim();
@@ -115,11 +130,6 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function toInteger(value: unknown) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? Math.trunc(numeric) : null;
-}
-
 function toOptionalText(value: unknown) {
   if (typeof value !== "string") {
     return null;
@@ -127,18 +137,6 @@ function toOptionalText(value: unknown) {
 
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
-}
-
-function centsFromEuros(value: number | null | undefined) {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-
-  return Math.round(value * 100);
 }
 
 function chunkArray<T>(items: T[], size: number) {
@@ -153,11 +151,36 @@ function isSupabaseRecoverableError(error: { code?: string; message?: string } |
   return isMissingDatabaseObject(error as never) || isPermissionError(error as never);
 }
 
+function maxIsoDate(leftIso: string, rightIso: string | null) {
+  if (!rightIso) {
+    return leftIso;
+  }
+
+  const leftEpoch = new Date(leftIso).getTime();
+  const rightEpoch = new Date(rightIso).getTime();
+
+  if (Number.isNaN(leftEpoch)) {
+    return Number.isNaN(rightEpoch) ? leftIso : rightIso;
+  }
+
+  if (Number.isNaN(rightEpoch)) {
+    return leftIso;
+  }
+
+  return rightEpoch > leftEpoch ? new Date(rightEpoch).toISOString() : leftIso;
+}
+
 function mapMetricsCentsToEuros(metrics: AggregatedPerformanceCents): BusinessPerformanceMetrics {
   return {
     gmv: Number(formatCentsToEuros(metrics.gmvCents).toFixed(2)),
+    attendiNet: Number(formatCentsToEuros(metrics.attendiProfitCents).toFixed(2)),
     attendiProfit: Number(formatCentsToEuros(metrics.attendiProfitCents).toFixed(2)),
+    ownerEarnings: Number(formatCentsToEuros(metrics.ownerEarningsCents).toFixed(2)),
+    hotelEarnings: Number(formatCentsToEuros(metrics.hotelEarningsCents).toFixed(2)),
+    refunds: Number(formatCentsToEuros(metrics.refundsCents).toFixed(2)),
+    customerPaid: Number(formatCentsToEuros(metrics.customerPaidCents).toFixed(2)),
     operations: metrics.operations,
+    operationsWithCashMovement: metrics.operationsWithCashMovement,
     paidOperations: metrics.paidOperations,
     refundedOperations: metrics.refundedOperations,
     cancelledOperations: metrics.cancelledOperations,
@@ -173,46 +196,97 @@ function mapMonthlyPoints(points: ReturnType<typeof aggregateEventsByMonth>): Bu
   }));
 }
 
-function reservationGrossCents(row: ReservationRow) {
-  const rental = toInteger(row.rental_amount);
-  const addons = toInteger(row.addons_amount);
-  const insurance = toInteger(row.insurance_amount);
-  const legacyImporte = centsFromEuros(row.importe);
-
-  if (rental !== null || addons !== null || insurance !== null) {
-    return Math.max(0, (rental ?? 0) + (addons ?? 0) + (insurance ?? 0));
-  }
-
-  return Math.max(0, legacyImporte ?? 0);
-}
-
-function reservationRefundCents(row: ReservationRow, grossCents: number) {
-  const explicitRefund = toInteger(row.refunded_amount);
-  if (explicitRefund !== null && explicitRefund > 0) {
-    return explicitRefund;
-  }
-
-  const statusText = String(row.status ?? "").toLowerCase();
-  const refundStatusText = String(row.refund_status ?? "").toLowerCase();
-  const inferredRefunded =
-    refundStatusText.includes("refund") ||
-    statusText.includes("refund") ||
-    statusText.includes("cancel") ||
-    statusText.includes("rejected");
-
-  return inferredRefunded ? Math.max(0, grossCents) : 0;
-}
-
 function getEntityDisplayName(entity: RawEntityRow) {
   return toOptionalText(entity.full_name) ?? toOptionalText(entity.username) ?? entity.id;
 }
 
-function getEntityCommissionMeta(entity: RawEntityRow): EntityCommissionMeta {
+function isInRange(value: string | null, start: Date, end: Date) {
+  if (!value) {
+    return false;
+  }
+
+  const epoch = new Date(value).getTime();
+  if (Number.isNaN(epoch)) {
+    return false;
+  }
+
+  return epoch >= start.getTime() && epoch < end.getTime();
+}
+
+function toPeriodFromWindow(window: { start: Date; end: Date; startIso: string; endIso: string }, label: string): BusinessPerformancePeriodBounds {
   return {
-    accountType: entity.account_type,
-    ownerPct: Math.max(0, toNumber(entity.comision_propietario, 10)),
-    hotelPct: Math.max(0, toNumber(entity.comision_hotel, 10))
+    start: window.start,
+    end: window.end,
+    startIso: window.startIso,
+    endIso: window.endIso,
+    label
   };
+}
+
+function resolvePeriod(filters: ReturnType<typeof normalizeBusinessPerformanceFilters>) {
+  if (!filters.dateFrom && !filters.dateTo) {
+    return buildPeriodBounds(filters.year, filters.month);
+  }
+
+  const fallback = buildPeriodBounds(filters.year, filters.month);
+  const from = filters.dateFrom ? new Date(`${filters.dateFrom}T00:00:00.000Z`) : null;
+  const to = filters.dateTo ? new Date(`${filters.dateTo}T00:00:00.000Z`) : null;
+
+  if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+    return fallback;
+  }
+
+  const start = from ?? fallback.start;
+  const endBase = to ?? fallback.end;
+  const end = new Date(endBase.getTime());
+  if (to) {
+    end.setUTCDate(end.getUTCDate() + 1);
+  }
+
+  if (end.getTime() <= start.getTime()) {
+    return fallback;
+  }
+
+  const dateLabel = `${start.toISOString().slice(0, 10)} -> ${new Date(end.getTime() - 1).toISOString().slice(0, 10)}`;
+
+  return {
+    start,
+    end,
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+    label: dateLabel
+  };
+}
+
+function csvEscape(value: string) {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  return value;
+}
+
+type EntityFilterStatement<T> = {
+  eq: (column: string, value: unknown) => T;
+  in: (column: string, values: unknown[]) => T;
+};
+
+function applyEntityFilters<T extends EntityFilterStatement<T>>(
+  statement: T,
+  filters: ReturnType<typeof normalizeBusinessPerformanceFilters>,
+  entityScopeIds: string[] | null
+) {
+  let scoped = statement.in("account_type", ["business", "hotel"]);
+
+  if (filters.entityType !== "all") {
+    scoped = scoped.eq("account_type", filters.entityType);
+  }
+
+  if (entityScopeIds) {
+    scoped = scoped.in("id", entityScopeIds);
+  }
+
+  return scoped;
 }
 
 function buildEntityScopeFilter(
@@ -232,105 +306,26 @@ function buildEntityScopeFilter(
   };
 }
 
-function resolveOwnerCommissionPct(
-  owner: EntityCommissionMeta | null,
-  fallbackEntity: EntityCommissionMeta,
-  sourceHotelId: string | null,
-  ownerId: string | null,
-  overrideMap: Map<string, number>
-) {
-  const baseOwnerPct = owner
-    ? owner.accountType === "hotel"
-      ? owner.hotelPct
-      : owner.ownerPct
-    : fallbackEntity.accountType === "hotel"
-      ? fallbackEntity.hotelPct
-      : fallbackEntity.ownerPct;
-
-  if (sourceHotelId && ownerId) {
-    const override = overrideMap.get(`${sourceHotelId}:${ownerId}`);
-    if (override !== undefined) {
-      return Math.max(0, override);
-    }
+function normalizeOperationMode(value: unknown): OperationModeFilter {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "direct" || normalized === "hotel_linked_external" || normalized === "hotel_own_product") {
+    return normalized;
   }
 
-  return Math.max(0, baseOwnerPct);
+  return "all";
 }
 
-function resolveAttendiProfitCents(args: {
-  reservation: ReservationRow;
-  grossCents: number;
-  mappedEntityMeta: EntityCommissionMeta;
-  ownerEntityMeta: EntityCommissionMeta | null;
-  ownerId: string | null;
-  overrideMap: Map<string, number>;
-  kHotel: number;
-}) {
-  const feeAmount = toInteger(args.reservation.fee_amount);
-  if (feeAmount !== null && feeAmount > 0) {
-    return feeAmount;
+function mapOperationModeToFlow(value: unknown): OperationMode {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "hotel_linked_external") {
+    return "hotel_linked_external";
   }
 
-  if (args.grossCents <= 0) {
-    return 0;
+  if (normalized === "hotel_own_product") {
+    return "hotel_own_product";
   }
 
-  const commissionPct = resolveOwnerCommissionPct(
-    args.ownerEntityMeta,
-    args.mappedEntityMeta,
-    args.reservation.source_hotel_id,
-    args.ownerId,
-    args.overrideMap
-  );
-
-  const ownerCommissionCents = Math.round(args.grossCents * (commissionPct / 100));
-  const hasHotelSplit = Boolean(args.reservation.source_hotel_id);
-  const attendiShare = hasHotelSplit ? 1 - args.kHotel : 1;
-
-  return Math.max(0, Math.round(ownerCommissionCents * attendiShare));
-}
-
-function buildReservationSelect() {
-  return [
-    "id",
-    "product_id",
-    "source_hotel_id",
-    "status",
-    "created_at",
-    "payment_authorized_at",
-    "refunded_at",
-    "rental_amount",
-    "addons_amount",
-    "insurance_amount",
-    "fee_amount",
-    "importe",
-    "refunded_amount",
-    "refund_status"
-  ].join(",");
-}
-
-type EntityFilterStatement<T> = {
-  eq: (column: string, value: unknown) => T;
-  in: (column: string, values: unknown[]) => T;
-  or: (filters: string) => T;
-};
-
-function applyEntityFilters<T extends EntityFilterStatement<T>>(
-  statement: T,
-  filters: ReturnType<typeof normalizeBusinessPerformanceFilters>,
-  entityScopeIds: string[] | null
-) {
-  let scoped = statement.in("account_type", ["business", "hotel"]);
-
-  if (filters.entityType !== "all") {
-    scoped = scoped.eq("account_type", filters.entityType);
-  }
-
-  if (entityScopeIds) {
-    scoped = scoped.in("id", entityScopeIds);
-  }
-
-  return scoped;
+  return "direct";
 }
 
 async function listAgentOptions() {
@@ -391,11 +386,36 @@ async function listEntityIdsForAgent(agentUserId: string) {
     throw new Error(error.message);
   }
 
-  return Array.from(
-    new Set(
-      ((data ?? []) as Array<{ entity_user_id: string }>).map((row) => row.entity_user_id).filter(Boolean)
-    )
-  );
+  return Array.from(new Set(((data ?? []) as Array<{ entity_user_id: string }>).map((row) => row.entity_user_id).filter(Boolean)));
+}
+
+async function getBusinessPerformanceCutoverIso() {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("analytics_cutover")
+    .select("business_performance_from")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error) {
+    if (isSupabaseRecoverableError(error)) {
+      return null;
+    }
+
+    throw new Error(error.message);
+  }
+
+  const value = toOptionalText((data as { business_performance_from?: string | null } | null)?.business_performance_from);
+  if (!value) {
+    return null;
+  }
+
+  const epoch = new Date(value).getTime();
+  if (Number.isNaN(epoch)) {
+    return null;
+  }
+
+  return new Date(epoch).toISOString();
 }
 
 async function fetchActiveAssignmentsByEntity(entityIds: string[]) {
@@ -462,189 +482,426 @@ async function fetchEntityEmailMap(entityIds: string[]) {
   return map;
 }
 
-async function fetchPlatformCommissionSettings() {
-  const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("platform_commission_settings")
-    .select("id,k_hotel")
-    .eq("id", 1)
-    .maybeSingle();
+async function fetchProductTitles(productIds: string[]) {
+  const map = new Map<string, string>();
 
-  if (error) {
-    if (isSupabaseRecoverableError(error)) {
-      return DEFAULT_K_HOTEL;
-    }
-
-    throw new Error(error.message);
-  }
-
-  return Math.min(1, Math.max(0, toNumber((data as CommissionSettingRow | null)?.k_hotel, DEFAULT_K_HOTEL)));
-}
-
-async function fetchCommissionOverrides(hotelIds: string[], ownerIds: string[]) {
-  const map = new Map<string, number>();
-
-  if (!hotelIds.length || !ownerIds.length) {
+  if (!productIds.length) {
     return map;
   }
 
   const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("hotel_company_commission_overrides")
-    .select("hotel_id,company_id,ce_p_pct,active")
-    .in("hotel_id", hotelIds)
-    .in("company_id", ownerIds)
-    .eq("active", true);
+  const chunks = chunkArray(productIds, 300);
 
-  if (error) {
-    if (isSupabaseRecoverableError(error)) {
-      return map;
+  for (const chunk of chunks) {
+    const { data, error } = await supabase.from("products").select("id,title").in("id", chunk);
+
+    if (error) {
+      if (isSupabaseRecoverableError(error)) {
+        continue;
+      }
+
+      throw new Error(error.message);
     }
 
-    throw new Error(error.message);
+    ((data ?? []) as ProductTitleRow[]).forEach((row) => {
+      const title = toOptionalText(row.title);
+      if (title) {
+        map.set(row.id, title);
+      }
+    });
   }
-
-  ((data ?? []) as CommissionOverrideRow[]).forEach((row) => {
-    map.set(`${row.hotel_id}:${row.company_id}`, Math.max(0, toNumber(row.ce_p_pct, 0)));
-  });
 
   return map;
 }
 
-async function runReservationChunkQueries({
-  productIds,
-  hotelIds,
-  startIso,
-  endIso
-}: {
-  productIds: string[];
-  hotelIds: string[];
+function mapViewRowToEntity(row: LedgerViewRow) {
+  const operationMode = mapOperationModeToFlow(row.operation_mode);
+
+  if (operationMode === "hotel_linked_external" && row.linked_hotel_id) {
+    return {
+      entityId: row.linked_hotel_id,
+      entityType: "hotel" as BusinessEntityType,
+      operationMode
+    };
+  }
+
+  const ownerType = String(row.owner_account_type ?? "").toLowerCase() === "hotel" ? "hotel" : "business";
+
+  return {
+    entityId: row.owner_user_id,
+    entityType: ownerType as BusinessEntityType,
+    operationMode
+  };
+}
+
+function mapLedgerStatus(feeEstimated: boolean): BusinessPerformanceLedgerStatus {
+  return feeEstimated ? "estimated" : "reconciled";
+}
+
+async function fetchLedgerRowsFromView(args: {
+  entityIds: string[];
   startIso: string;
   endIso: string;
+  filters: ReturnType<typeof normalizeBusinessPerformanceFilters>;
 }) {
-  const supabase = createSupabaseServerClient();
-  const rowsById = new Map<string, ReservationRow>();
-  const select = buildReservationSelect();
+  if (!args.entityIds.length) {
+    return [] as LedgerRowInternal[];
+  }
 
-  async function executeQuery(mode: "product" | "hotel", ids: string[]) {
-    if (!ids.length) {
-      return;
+  const supabase = createSupabaseServerClient();
+  const byEntityReservation = new Map<string, LedgerRowInternal>();
+
+  const selectColumns = [
+    "reservation_id",
+    "product_id",
+    "owner_user_id",
+    "owner_account_type",
+    "linked_hotel_id",
+    "buyer_user_id",
+    "status",
+    "rental_type",
+    "payment_captured",
+    "payment_bypassed",
+    "payment_intent_id",
+    "charge_id",
+    "balance_transaction_id",
+    "currency",
+    "effective_at",
+    "start_date",
+    "end_date",
+    "start_time",
+    "end_time",
+    "customer_paid_cents",
+    "refunded_cents",
+    "owner_earnings_cents",
+    "hotel_earnings_cents",
+    "attendi_before_stripe_cents",
+    "stripe_fee_cents",
+    "attendi_net_cents",
+    "fee_estimated",
+    "operation_mode"
+  ].join(",");
+
+  const operationMode = normalizeOperationMode(args.filters.operationMode);
+  const chunks = chunkArray(args.entityIds, LEDGER_ENTITY_CHUNK_SIZE);
+
+  async function runQueryByColumn(column: "owner_user_id" | "linked_hotel_id", ids: string[]) {
+    const statement = supabase
+      .from("v_business_performance_ledger")
+      .select(selectColumns)
+      .in(column, ids)
+      .gte("effective_at", args.startIso)
+      .lt("effective_at", args.endIso);
+
+    if (args.filters.operationStatus) {
+      statement.eq("status", args.filters.operationStatus);
     }
 
-    const chunks = chunkArray(ids, RESERVATION_CHUNK_SIZE);
+    if (operationMode !== "all") {
+      statement.eq("operation_mode", operationMode);
+    }
 
-    for (const chunk of chunks) {
-      let statement = supabase
-        .from("reservations")
-        .select(select)
-        .order("created_at", { ascending: false });
+    const { data, error } = await statement;
 
-      statement = mode === "product" ? statement.in("product_id", chunk) : statement.in("source_hotel_id", chunk);
-
-      let response = await statement.or(
-        `and(payment_authorized_at.gte.${startIso},payment_authorized_at.lt.${endIso}),and(payment_authorized_at.is.null,created_at.gte.${startIso},created_at.lt.${endIso})`
-      );
-
-      if (response.error && !isSupabaseRecoverableError(response.error)) {
-        response = await statement.gte("created_at", startIso).lt("created_at", endIso);
+    if (error) {
+      if (isSupabaseRecoverableError(error)) {
+        return;
       }
 
-      if (response.error) {
-        if (isSupabaseRecoverableError(response.error)) {
-          continue;
-        }
+      throw new Error(error.message);
+    }
 
-        throw new Error(response.error.message);
+    for (const row of (data ?? []) as unknown as LedgerViewRow[]) {
+      const entity = mapViewRowToEntity(row);
+      if (!entity.entityId || !args.entityIds.includes(entity.entityId)) {
+        continue;
       }
 
-      ((response.data ?? []) as unknown as ReservationRow[]).forEach((row) => {
-        if (!rowsById.has(row.id)) {
-          rowsById.set(row.id, row);
-        }
+      if (args.filters.entityType !== "all" && entity.entityType !== args.filters.entityType) {
+        continue;
+      }
+
+      const feeEstimated = Boolean(row.fee_estimated);
+      const reservationId = String(row.reservation_id);
+      const key = `${entity.entityId}:${reservationId}`;
+
+      const math = computeBusinessPerformanceLedgerMath({
+        customerPaidCents: toNumber(row.customer_paid_cents, 0),
+        refundedCents: toNumber(row.refunded_cents, 0),
+        ownerEarningsCents: toNumber(row.owner_earnings_cents, 0),
+        hotelEarningsCents: toNumber(row.hotel_earnings_cents, 0),
+        stripeFeeCents: toNumber(row.stripe_fee_cents, 0),
+        feeEstimated
       });
+
+      const mapped: LedgerRowInternal = {
+        entityId: entity.entityId,
+        entityType: entity.entityType,
+        reservationId,
+        ownerUserId: row.owner_user_id,
+        ownerType: row.owner_account_type,
+        buyerUserId: row.buyer_user_id,
+        linkedHotelId: row.linked_hotel_id,
+        flowType: entity.operationMode,
+        operationMode: entity.operationMode,
+        feeSource: math.feeSource,
+        productId: row.product_id,
+        productTitle: null,
+        createdAt: row.effective_at,
+        startDate: row.start_date,
+        endDate: row.end_date,
+        effectiveAt: row.effective_at,
+        effectiveAtMonth: row.effective_at ? row.effective_at.slice(0, 7) + "-01T00:00:00.000Z" : null,
+        status: row.status,
+        pBaseCents: 0,
+        insuranceCents: 0,
+        cclCents: 0,
+        grossCustomerCents: math.customerPaidCents,
+        refundedCustomerCents: math.refundedCents,
+        retainedBaseCents: 0,
+        ownerAmountCents: math.ownerEarningsCents,
+        ownerAmountSource: "persisted" as BusinessPerformanceAmountSource,
+        hotelAmountCents: math.hotelEarningsCents,
+        attendiAmountBeforeStripeCents: math.attendiBeforeStripeCents,
+        stripeFeeCents: math.stripeFeeCents,
+        attendiNetCents: math.attendiNetCents,
+        cpPctEffective: null,
+        cePPctEffective: null,
+        chPctEffective: null,
+        kHotelEffective: null,
+        retentionPctEffective: null,
+        isEstimated: math.feeEstimated,
+        estimationReason: feeEstimated ? "Stripe fee not reconciled yet; fee is estimated from reservation cache or zero." : null,
+        ledgerStatus: mapLedgerStatus(math.feeEstimated)
+      };
+
+      byEntityReservation.set(key, mapped);
     }
   }
 
-  await executeQuery("product", productIds);
-  await executeQuery("hotel", hotelIds);
+  for (const chunk of chunks) {
+    await runQueryByColumn("owner_user_id", chunk);
+    await runQueryByColumn("linked_hotel_id", chunk);
+  }
 
-  return Array.from(rowsById.values());
+  const rows = Array.from(byEntityReservation.values());
+  const productTitleMap = await fetchProductTitles(
+    Array.from(new Set(rows.map((row) => row.productId).filter((value): value is string => Boolean(value))))
+  );
+
+  rows.forEach((row) => {
+    if (row.productId) {
+      row.productTitle = productTitleMap.get(row.productId) ?? null;
+    }
+  });
+
+  return rows;
+}
+
+function mapLedgerRowToEvent(row: LedgerRowInternal, agentUserId: string | null): ReservationPerformanceEvent {
+  const hasCashMovement = row.grossCustomerCents > 0 || row.refundedCustomerCents > 0;
+
+  return {
+    reservationId: row.reservationId,
+    entityId: row.entityId,
+    entityType: row.entityType,
+    agentUserId,
+    status: row.status,
+    flowType: row.flowType,
+    effectiveAt: row.effectiveAt,
+    refundAt: row.effectiveAt,
+    grossCents: row.grossCustomerCents,
+    refundCents: row.refundedCustomerCents,
+    attendiProfitCents: row.attendiNetCents,
+    ownerEarningsCents: row.ownerAmountCents,
+    hotelEarningsCents: row.hotelAmountCents,
+    customerPaidCents: row.grossCustomerCents,
+    hasCashMovement,
+    isEstimated: row.isEstimated
+  };
+}
+
+function toPublicLedgerRow(row: LedgerRowInternal): BusinessPerformanceLedgerRow {
+  return {
+    reservationId: row.reservationId,
+    ownerUserId: row.ownerUserId,
+    ownerType: row.ownerType,
+    buyerUserId: row.buyerUserId,
+    linkedHotelId: row.linkedHotelId,
+    flowType: row.flowType,
+    operationMode: row.operationMode,
+    feeSource: row.feeSource,
+    productId: row.productId,
+    productTitle: row.productTitle,
+    createdAt: row.createdAt,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    effectiveAt: row.effectiveAt,
+    effectiveAtMonth: row.effectiveAtMonth,
+    status: row.status,
+    pBaseCents: row.pBaseCents,
+    insuranceCents: row.insuranceCents,
+    cclCents: row.cclCents,
+    grossCustomerCents: row.grossCustomerCents,
+    refundedCustomerCents: row.refundedCustomerCents,
+    retainedBaseCents: row.retainedBaseCents,
+    ownerAmountCents: row.ownerAmountCents,
+    ownerAmountSource: row.ownerAmountSource,
+    hotelAmountCents: row.hotelAmountCents,
+    attendiAmountBeforeStripeCents: row.attendiAmountBeforeStripeCents,
+    stripeFeeCents: row.stripeFeeCents,
+    attendiNetCents: row.attendiNetCents,
+    cpPctEffective: row.cpPctEffective,
+    cePPctEffective: row.cePPctEffective,
+    chPctEffective: row.chPctEffective,
+    kHotelEffective: row.kHotelEffective,
+    retentionPctEffective: row.retentionPctEffective,
+    isEstimated: row.isEstimated,
+    estimationReason: row.estimationReason,
+    ledgerStatus: row.ledgerStatus
+  };
 }
 
 function getYearOptions(currentYear: number) {
   return Array.from({ length: 6 }, (_, index) => currentYear - index);
 }
 
-export async function getBusinessPerformancePageData(input: QueryInput): Promise<BusinessPerformancePageData> {
-  const now = new Date();
-  const filters = normalizeBusinessPerformanceFilters(
-    {
-      year: input.year,
-      month: input.month,
-      entityType: input.entityType,
-      query: input.q,
-      agentUserId: input.agent,
-      entity: input.entity
-    },
-    now
-  );
+function buildHistoryForEntity(args: {
+  entityRows: LedgerRowInternal[];
+  filters: ReturnType<typeof normalizeBusinessPerformanceFilters>;
+  period: BusinessPerformancePeriodBounds;
+}) {
+  const periodRows = args.entityRows.filter((row) => isInRange(row.effectiveAt, args.period.start, args.period.end));
 
-  const period = buildPeriodBounds(filters.year, filters.month);
-  const trendWindow = buildMonthWindow(period.end, 3);
-  const detailWindow = buildMonthWindow(period.end, 12);
-  const earliestWindowStart = trendWindow.start < detailWindow.start ? trendWindow.start : detailWindow.start;
+  const historyRows = periodRows.filter((row) => {
+    if (args.filters.historyStatus) {
+      const status = String(row.status ?? "").toLowerCase();
+      if (status !== args.filters.historyStatus) {
+        return false;
+      }
+    }
+
+    if (args.filters.historyProductId && row.productId !== args.filters.historyProductId) {
+      return false;
+    }
+
+    return true;
+  });
+
+  historyRows.sort((a, b) => {
+    const aValue = new Date(a.effectiveAt ?? a.createdAt ?? "1970-01-01T00:00:00.000Z").getTime();
+    const bValue = new Date(b.effectiveAt ?? b.createdAt ?? "1970-01-01T00:00:00.000Z").getTime();
+    return bValue - aValue;
+  });
+
+  const total = historyRows.length;
+  const page = Math.max(1, args.filters.historyPage);
+  const pageSize = Math.max(1, args.filters.historyPageSize);
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize;
+
+  const productOptions = Array.from(
+    new Map(
+      periodRows
+        .filter((row) => row.productId)
+        .map((row) => [row.productId as string, row.productTitle ?? row.productId ?? "-"])
+    )
+      .entries()
+  )
+    .map(([id, title]) => ({ id, title }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+
+  return {
+    rows: historyRows.slice(from, to).map(toPublicLedgerRow),
+    total,
+    page,
+    pageSize,
+    productOptions,
+    allRows: historyRows
+  };
+}
+
+function mapInputToFilters(input: QueryInput) {
+  return normalizeBusinessPerformanceFilters({
+    year: input.year,
+    month: input.month,
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+    entityType: input.entityType,
+    status: input.status,
+    operationMode: input.operationMode,
+    hotelLink: input.hotelLink,
+    query: input.q,
+    agentUserId: input.agent,
+    entity: input.entity,
+    historyStatus: input.historyStatus,
+    historyProduct: input.historyProduct,
+    historyPage: input.historyPage,
+    historyPageSize: input.historyPageSize
+  });
+}
+
+export async function getBusinessPerformancePageData(input: QueryInput): Promise<BusinessPerformancePageData> {
+  const filters = mapInputToFilters(input);
+  const period = resolvePeriod(filters);
+
+  const trendWindow = buildMonthWindow(period.end, 12);
 
   const notes: string[] = [];
 
-  const [agentOptions, idsForAgent] = await Promise.all([
+  const [agentOptions, idsForAgent, cutoverIso] = await Promise.all([
     listAgentOptions(),
-    listEntityIdsForAgent(filters.agentUserId)
+    listEntityIdsForAgent(filters.agentUserId),
+    getBusinessPerformanceCutoverIso()
   ]);
-
   const entityScope = buildEntityScopeFilter(filters, idsForAgent);
 
+  const trendStartIso = maxIsoDate(trendWindow.startIso, cutoverIso);
+
   if (entityScope.shortCircuit) {
+    const zeroMetrics = mapMetricsCentsToEuros({
+      gmvCents: 0,
+      attendiProfitCents: 0,
+      ownerEarningsCents: 0,
+      hotelEarningsCents: 0,
+      refundsCents: 0,
+      customerPaidCents: 0,
+      operations: 0,
+      operationsWithCashMovement: 0,
+      paidOperations: 0,
+      refundedOperations: 0,
+      cancelledOperations: 0,
+      averageTicketCents: 0
+    });
+
     return {
       filters,
       periodLabel: period.label,
       totalEntities: 0,
-      kpis: {
-        gmv: 0,
-        attendiProfit: 0,
-        operations: 0,
-        paidOperations: 0,
-        refundedOperations: 0,
-        cancelledOperations: 0,
-        averageTicket: 0
-      },
+      kpis: zeroMetrics,
       entities: [],
       selectedEntityId: null,
       selectedEntityDetail: null,
       agentOptions,
       notes: [
         "No entities match the selected commission-agent filter.",
-        "Attendi profit uses reservation.fee_amount when present; fallback formula uses profile commissions + hotel split settings."
+        "Ledger source: public.v_business_performance_ledger"
       ]
     };
   }
 
   const supabase = createSupabaseServerClient();
-
-  const listQuery = applyEntityFilters(
+  const entityQuery = applyEntityFilters(
     supabase
       .from("profiles")
-      .select(
-        "id,full_name,username,account_type,comision_propietario,comision_hotel,latitude,longitude,precise_location",
-        { count: "exact" }
-      )
+      .select("id,full_name,username,account_type,latitude,longitude,precise_location", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(0, Math.max(0, MAX_KPI_ENTITY_SCOPE - 1)),
     filters,
     entityScope.ids
   );
 
-  const { data: rawRows, error: rawError, count } = await listQuery;
-
+  const { data: rawRows, error: rawError, count } = await entityQuery;
   if (rawError) {
     throw new Error(rawError.message);
   }
@@ -652,11 +909,6 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
   const unfilteredEntities = (rawRows ?? []) as RawEntityRow[];
   const loadedEntityIds = unfilteredEntities.map((row) => row.id);
   const emailMap = await fetchEntityEmailMap(loadedEntityIds);
-  const rawEntityCount = count ?? unfilteredEntities.length;
-
-  if (rawEntityCount > MAX_KPI_ENTITY_SCOPE) {
-    notes.push(`Entity list and KPI aggregation are capped to ${MAX_KPI_ENTITY_SCOPE} entities for performance.`);
-  }
 
   let scopedEntities = unfilteredEntities;
   if (filters.query) {
@@ -671,26 +923,33 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
 
   const totalEntities = scopedEntities.length;
 
-  if (totalEntities === 0) {
-    notes.push(
-      "GMV base uses rental_amount + addons_amount + insurance_amount (fallback: legacy importe), netted with refunded_amount/refund status.",
-      "Effective booking date uses payment_authorized_at when available, otherwise created_at.",
-      "Attendi profit uses reservations.fee_amount when present; fallback uses profile commission percentages, platform_commission_settings.k_hotel, and hotel_company_commission_overrides.ce_p_pct."
-    );
+  if ((count ?? unfilteredEntities.length) > MAX_KPI_ENTITY_SCOPE) {
+    notes.push(`Entity list and KPI aggregation are capped to ${MAX_KPI_ENTITY_SCOPE} entities for performance.`);
+  }
+
+  if (!totalEntities) {
+    const zeroMetrics = mapMetricsCentsToEuros({
+      gmvCents: 0,
+      attendiProfitCents: 0,
+      ownerEarningsCents: 0,
+      hotelEarningsCents: 0,
+      refundsCents: 0,
+      customerPaidCents: 0,
+      operations: 0,
+      operationsWithCashMovement: 0,
+      paidOperations: 0,
+      refundedOperations: 0,
+      cancelledOperations: 0,
+      averageTicketCents: 0
+    });
+
+    notes.push("Ledger source: public.v_business_performance_ledger");
 
     return {
       filters,
       periodLabel: period.label,
-      totalEntities: 0,
-      kpis: {
-        gmv: 0,
-        attendiProfit: 0,
-        operations: 0,
-        paidOperations: 0,
-        refundedOperations: 0,
-        cancelledOperations: 0,
-        averageTicket: 0
-      },
+      totalEntities,
+      kpis: zeroMetrics,
       entities: [],
       selectedEntityId: null,
       selectedEntityDetail: null,
@@ -700,177 +959,52 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
   }
 
   const scopedEntityIds = scopedEntities.map((row) => row.id);
-  const entityIdsForLabels = scopedEntityIds;
-
-  const assignmentsByEntity = await fetchActiveAssignmentsByEntity(entityIdsForLabels);
+  const assignmentsByEntity = await fetchActiveAssignmentsByEntity(scopedEntityIds);
   const assignedAgentIds = Array.from(new Set(Array.from(assignmentsByEntity.values())));
   const assignedAgentProfiles = await getProfilesMap(assignedAgentIds);
 
-  const profileByEntity = new Map<string, RawEntityRow>();
-  scopedEntities.forEach((entity) => profileByEntity.set(entity.id, entity));
-
-  const entityCommissionMap = new Map<string, EntityCommissionMeta>();
-  profileByEntity.forEach((entity, entityId) => {
-    entityCommissionMap.set(entityId, getEntityCommissionMeta(entity));
-  });
-
-  const { data: productRows, error: productError } = await supabase
-    .from("products")
-    .select("id,user_id")
-    .in("user_id", scopedEntityIds);
-
-  if (productError && !isSupabaseRecoverableError(productError)) {
-    throw new Error(productError.message);
-  }
-
-  const products = (productRows ?? []) as ProductOwnerRow[];
-  const productOwnerById = new Map<string, string>();
-  products.forEach((product) => {
-    if (product.user_id) {
-      productOwnerById.set(product.id, product.user_id);
-    }
-  });
-
-  let ownerIds = Array.from(new Set(Array.from(productOwnerById.values())));
-  let missingOwnerIds = ownerIds.filter((ownerId) => !entityCommissionMap.has(ownerId));
-
-  const entityTypeById = new Map<string, BusinessEntityType>();
-  profileByEntity.forEach((entity, entityId) => {
-    entityTypeById.set(entityId, entity.account_type);
-  });
-
-  const hotelIdsInScope = scopedEntityIds.filter((entityId) => entityTypeById.get(entityId) === "hotel");
-  const kHotel = await fetchPlatformCommissionSettings();
-  const scopedEntitySet = new Set(scopedEntityIds);
-
-  const reservationRows = await runReservationChunkQueries({
-    productIds: Array.from(productOwnerById.keys()),
-    hotelIds: hotelIdsInScope,
-    startIso: earliestWindowStart.toISOString(),
-    endIso: period.endIso
-  });
-
-  const missingProductIds = Array.from(
-    new Set(
-      reservationRows
-        .map((row) => row.product_id)
-        .filter((value): value is string => {
-          if (!value) {
-            return false;
-          }
-
-          return !productOwnerById.has(value);
-        })
-    )
-  );
-
-  if (missingProductIds.length) {
-    const { data: extraProducts, error: extraProductsError } = await supabase
-      .from("products")
-      .select("id,user_id")
-      .in("id", missingProductIds);
-
-    if (extraProductsError && !isSupabaseRecoverableError(extraProductsError)) {
-      throw new Error(extraProductsError.message);
-    }
-
-    ((extraProducts ?? []) as ProductOwnerRow[]).forEach((product) => {
-      if (product.user_id) {
-        productOwnerById.set(product.id, product.user_id);
-      }
-    });
-  }
-
-  ownerIds = Array.from(new Set(Array.from(productOwnerById.values())));
-  missingOwnerIds = ownerIds.filter((ownerId) => !entityCommissionMap.has(ownerId));
-
-  if (missingOwnerIds.length) {
-    const { data: ownerRows, error: ownerError } = await supabase
-      .from("profiles")
-      .select("id,account_type,comision_propietario,comision_hotel")
-      .in("id", missingOwnerIds);
-
-    if (ownerError && !isSupabaseRecoverableError(ownerError)) {
-      throw new Error(ownerError.message);
-    }
-
-    ((ownerRows ?? []) as Array<{
-      id: string;
-      account_type: BusinessEntityType;
-      comision_propietario: number | null;
-      comision_hotel: number | null;
-    }>).forEach((owner) => {
-      entityCommissionMap.set(owner.id, {
-        accountType: owner.account_type,
-        ownerPct: Math.max(0, toNumber(owner.comision_propietario, 10)),
-        hotelPct: Math.max(0, toNumber(owner.comision_hotel, 10))
-      });
-    });
-  }
-
-  const overrideMap = await fetchCommissionOverrides(hotelIdsInScope, ownerIds);
-
-  const events: ReservationPerformanceEvent[] = [];
-
-  reservationRows.forEach((reservation) => {
-    const ownerId = reservation.product_id ? productOwnerById.get(reservation.product_id) ?? null : null;
-    const mappedEntityId =
-      reservation.source_hotel_id && scopedEntitySet.has(reservation.source_hotel_id)
-        ? reservation.source_hotel_id
-        : ownerId && scopedEntitySet.has(ownerId)
-          ? ownerId
-          : null;
-
-    if (!mappedEntityId) {
-      return;
-    }
-
-    const mappedEntityMeta = entityCommissionMap.get(mappedEntityId);
-    if (!mappedEntityMeta) {
-      return;
-    }
-
-    const ownerEntityMeta = ownerId ? entityCommissionMap.get(ownerId) ?? null : null;
-    const grossCents = reservationGrossCents(reservation);
-    const refundCents = reservationRefundCents(reservation, grossCents);
-    const attendiProfitCents = resolveAttendiProfitCents({
-      reservation,
-      grossCents,
-      mappedEntityMeta,
-      ownerEntityMeta,
-      ownerId,
-      overrideMap,
-      kHotel
-    });
-
-    events.push({
-      reservationId: reservation.id,
-      entityId: mappedEntityId,
-      entityType: mappedEntityMeta.accountType,
-      agentUserId: assignmentsByEntity.get(mappedEntityId) ?? null,
-      status: reservation.status,
-      effectiveAt: reservation.payment_authorized_at ?? reservation.created_at,
-      refundAt: reservation.refunded_at,
-      grossCents,
-      refundCents,
-      attendiProfitCents
-    });
+  const ledgerRows = await fetchLedgerRowsFromView({
+    entityIds: scopedEntityIds,
+    startIso: trendStartIso,
+    endIso: period.endIso,
+    filters
   });
 
   const eventsByEntity = new Map<string, ReservationPerformanceEvent[]>();
-  events.forEach((event) => {
-    const list = eventsByEntity.get(event.entityId) ?? [];
-    list.push(event);
-    eventsByEntity.set(event.entityId, list);
+  ledgerRows.forEach((row) => {
+    const event = mapLedgerRowToEvent(row, assignmentsByEntity.get(row.entityId) ?? null);
+    const existing = eventsByEntity.get(row.entityId) ?? [];
+    existing.push(event);
+    eventsByEntity.set(row.entityId, existing);
   });
+
+  const events = ledgerRows.map((row) => mapLedgerRowToEvent(row, assignmentsByEntity.get(row.entityId) ?? null));
 
   const entityRows: BusinessPerformanceEntityRow[] = scopedEntities.map((entity) => {
     const entityEvents = eventsByEntity.get(entity.id) ?? [];
-    const periodMetricsCents = aggregateEventsForPeriod(entityEvents, period, {
+    const periodMetrics = aggregateEventsForPeriod(entityEvents, period, {
       entityType: "all",
       agentUserId: ""
     });
+
     const trendPoints = aggregateEventsByMonth(entityEvents, period.end, 3, {
+      entityType: "all",
+      agentUserId: ""
+    });
+
+    const trailing3Window = buildMonthWindow(period.end, 3);
+    const trailing6Window = buildMonthWindow(period.end, 6);
+    const trailing12Window = buildMonthWindow(period.end, 12);
+
+    const trailing3 = aggregateEventsForPeriod(entityEvents, toPeriodFromWindow(trailing3Window, "Last 3 months"), {
+      entityType: "all",
+      agentUserId: ""
+    });
+    const trailing6 = aggregateEventsForPeriod(entityEvents, toPeriodFromWindow(trailing6Window, "Last 6 months"), {
+      entityType: "all",
+      agentUserId: ""
+    });
+    const trailing12 = aggregateEventsForPeriod(entityEvents, toPeriodFromWindow(trailing12Window, "Last 12 months"), {
       entityType: "all",
       agentUserId: ""
     });
@@ -889,18 +1023,23 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
       preciseLocation: toOptionalText(entity.precise_location),
       assignedAgentUserId: agentUserId,
       assignedAgentName: agentProfile?.full_name ?? agentProfile?.username ?? agentUserId,
-      periodMetrics: mapMetricsCentsToEuros(periodMetricsCents),
+      periodMetrics: mapMetricsCentsToEuros(periodMetrics),
+      trailingMetrics: {
+        last3Months: mapMetricsCentsToEuros(trailing3),
+        last6Months: mapMetricsCentsToEuros(trailing6),
+        last12Months: mapMetricsCentsToEuros(trailing12)
+      },
       lastThreeMonthsGmv: trendPoints.map((point) => Number(formatCentsToEuros(point.metrics.gmvCents).toFixed(2)))
     };
   });
 
-  const kpiMetricsCents = aggregateEventsForPeriod(events, period, {
-    entityType: filters.entityType,
-    agentUserId: filters.agentUserId
+  const kpiMetrics = aggregateEventsForPeriod(events, period, {
+    entityType: "all",
+    agentUserId: ""
   });
 
   const selectedEntityId = (() => {
-    if (filters.selectedEntityId && profileByEntity.has(filters.selectedEntityId)) {
+    if (filters.selectedEntityId && scopedEntities.some((entity) => entity.id === filters.selectedEntityId)) {
       return filters.selectedEntityId;
     }
 
@@ -911,56 +1050,186 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
     return null;
   })();
 
-  const selectedEntity = selectedEntityId ? profileByEntity.get(selectedEntityId) ?? null : null;
-  const selectedEvents = selectedEntityId ? eventsByEntity.get(selectedEntityId) ?? [] : [];
-  const selectedAgentUserId = selectedEntityId ? assignmentsByEntity.get(selectedEntityId) ?? null : null;
-  const selectedAgentProfile = selectedAgentUserId ? assignedAgentProfiles.get(selectedAgentUserId) : undefined;
+  const selectedEntityRaw = selectedEntityId
+    ? scopedEntities.find((entity) => entity.id === selectedEntityId) ?? null
+    : null;
 
-  const selectedEntityDetail: BusinessPerformanceEntityDetail | null =
-    selectedEntity && selectedEntityId
-      ? {
-          id: selectedEntityId,
-          name: getEntityDisplayName(selectedEntity),
-          username: toOptionalText(selectedEntity.username),
-          email: toOptionalText(emailMap.get(selectedEntityId)) ?? toOptionalText(selectedEntity.username),
-          entityType: selectedEntity.account_type,
-          latitude: selectedEntity.latitude,
-          longitude: selectedEntity.longitude,
-          preciseLocation: toOptionalText(selectedEntity.precise_location),
-          assignedAgentUserId: selectedAgentUserId,
-          assignedAgentName: selectedAgentProfile?.full_name ?? selectedAgentProfile?.username ?? selectedAgentUserId,
-          periodMetrics: mapMetricsCentsToEuros(
-            aggregateEventsForPeriod(selectedEvents, period, {
-              entityType: "all",
-              agentUserId: ""
-            })
-          ),
-          monthlySeries: mapMonthlyPoints(
-            aggregateEventsByMonth(selectedEvents, period.end, 12, {
-              entityType: "all",
-              agentUserId: ""
-            })
-          )
-        }
-      : null;
+  const selectedEntityDetail: BusinessPerformanceEntityDetail | null = (() => {
+    if (!selectedEntityRaw || !selectedEntityId) {
+      return null;
+    }
+
+    const entityEvents = eventsByEntity.get(selectedEntityId) ?? [];
+    const monthlySeries = mapMonthlyPoints(
+      aggregateEventsByMonth(entityEvents, period.end, 12, {
+        entityType: "all",
+        agentUserId: ""
+      })
+    );
+
+    const historyForEntity = buildHistoryForEntity({
+      entityRows: ledgerRows.filter((row) => row.entityId === selectedEntityId),
+      filters,
+      period
+    });
+
+    const selectedAgentUserId = assignmentsByEntity.get(selectedEntityId) ?? null;
+    const selectedAgentProfile = selectedAgentUserId ? assignedAgentProfiles.get(selectedAgentUserId) : undefined;
+
+    return {
+      id: selectedEntityId,
+      name: getEntityDisplayName(selectedEntityRaw),
+      username: toOptionalText(selectedEntityRaw.username),
+      email: toOptionalText(emailMap.get(selectedEntityId)) ?? toOptionalText(selectedEntityRaw.username),
+      entityType: selectedEntityRaw.account_type,
+      latitude: selectedEntityRaw.latitude,
+      longitude: selectedEntityRaw.longitude,
+      preciseLocation: toOptionalText(selectedEntityRaw.precise_location),
+      assignedAgentUserId: selectedAgentUserId,
+      assignedAgentName: selectedAgentProfile?.full_name ?? selectedAgentProfile?.username ?? selectedAgentUserId,
+      periodMetrics: mapMetricsCentsToEuros(
+        aggregateEventsForPeriod(entityEvents, period, {
+          entityType: "all",
+          agentUserId: ""
+        })
+      ),
+      monthlySeries,
+      history: {
+        rows: historyForEntity.rows,
+        total: historyForEntity.total,
+        page: historyForEntity.page,
+        pageSize: historyForEntity.pageSize
+      },
+      historyProductOptions: historyForEntity.productOptions
+    };
+  })();
 
   notes.push(
-    "GMV base uses rental_amount + addons_amount + insurance_amount (fallback: legacy importe), netted with refunded_amount/refund status.",
-    "Effective booking date uses payment_authorized_at when available, otherwise created_at.",
-    "Attendi profit uses reservations.fee_amount when present; fallback uses profile commission percentages, platform_commission_settings.k_hotel, and hotel_company_commission_overrides.ce_p_pct."
+    "Ledger source: public.v_business_performance_ledger (canonical persisted amounts).",
+    "Attendi before Stripe and Attendi net are read directly from ledger columns.",
+    "fee_estimated=true only when Stripe reconciliation row is missing for that operation."
   );
+  if (cutoverIso) {
+    notes.push(`Cutover active from ${cutoverIso} (analytics_cutover.id=1).`);
+  }
 
   return {
     filters,
     periodLabel: period.label,
     totalEntities,
-    kpis: mapMetricsCentsToEuros(kpiMetricsCents),
+    kpis: mapMetricsCentsToEuros(kpiMetrics),
     entities: entityRows,
     selectedEntityId,
     selectedEntityDetail,
     agentOptions,
     notes
   };
+}
+
+export async function getBusinessPerformanceKpis(input: QueryInput) {
+  const data = await getBusinessPerformancePageData(input);
+  return {
+    periodLabel: data.periodLabel,
+    filters: data.filters,
+    kpis: data.kpis,
+    totalEntities: data.totalEntities
+  };
+}
+
+export async function getBusinessPerformanceEntities(input: QueryInput) {
+  const data = await getBusinessPerformancePageData(input);
+  return {
+    periodLabel: data.periodLabel,
+    filters: data.filters,
+    totalEntities: data.totalEntities,
+    entities: data.entities
+  };
+}
+
+export async function getBusinessPerformanceEntityDetail(input: QueryInput & { entityId: string }) {
+  const data = await getBusinessPerformancePageData({
+    ...input,
+    entity: input.entityId
+  });
+
+  return {
+    periodLabel: data.periodLabel,
+    filters: data.filters,
+    entity: data.selectedEntityDetail
+  };
+}
+
+export async function getBusinessPerformanceEntityOperations(input: QueryInput & { entityId: string }) {
+  const data = await getBusinessPerformancePageData({
+    ...input,
+    entity: input.entityId
+  });
+
+  return {
+    periodLabel: data.periodLabel,
+    filters: data.filters,
+    entityId: input.entityId,
+    history: data.selectedEntityDetail?.history ?? {
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: Math.max(1, Number(input.historyPageSize ?? 15) || 15)
+    }
+  };
+}
+
+export async function getBusinessPerformanceEntityHistoryCsv(
+  input: QueryInput & { entityId: string }
+): Promise<string> {
+  const data = await getBusinessPerformancePageData({
+    ...input,
+    entity: input.entityId,
+    historyPage: "1",
+    historyPageSize: "5000"
+  });
+
+  const detail = data.selectedEntityDetail;
+  if (!detail) {
+    return "effective_at,reservation_id,customer_paid,refunded,owner,hotel,attendi_before_stripe,stripe_fee,attendi_net,fee_source,operation_mode,status,reconciliation\n";
+  }
+
+  const header = [
+    "effective_at",
+    "reservation_id",
+    "customer_paid",
+    "refunded",
+    "owner",
+    "hotel",
+    "attendi_before_stripe",
+    "stripe_fee",
+    "attendi_net",
+    "fee_source",
+    "operation_mode",
+    "status",
+    "reconciliation"
+  ];
+
+  const lines = detail.history.rows.map((row) =>
+    [
+      row.effectiveAt ?? row.createdAt ?? "",
+      row.reservationId,
+      (row.grossCustomerCents / 100).toFixed(2),
+      (row.refundedCustomerCents / 100).toFixed(2),
+      (row.ownerAmountCents / 100).toFixed(2),
+      (row.hotelAmountCents / 100).toFixed(2),
+      (row.attendiAmountBeforeStripeCents / 100).toFixed(2),
+      (row.stripeFeeCents / 100).toFixed(2),
+      (row.attendiNetCents / 100).toFixed(2),
+      row.feeSource,
+      row.operationMode,
+      row.status ?? "",
+      row.ledgerStatus
+    ]
+      .map((value) => csvEscape(String(value ?? "")))
+      .join(",")
+  );
+
+  return [header.join(","), ...lines].join("\n");
 }
 
 export function getBusinessPerformanceYearOptions(referenceDate = new Date()) {

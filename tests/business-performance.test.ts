@@ -16,11 +16,17 @@ function event(input: Partial<ReservationPerformanceEvent>): ReservationPerforma
     entityType: input.entityType ?? "business",
     agentUserId: input.agentUserId ?? null,
     status: input.status ?? "ended",
+    flowType: input.flowType ?? "standard",
     effectiveAt: input.effectiveAt ?? "2026-01-01T12:00:00.000Z",
     refundAt: input.refundAt ?? null,
     grossCents: input.grossCents ?? 0,
     refundCents: input.refundCents ?? 0,
-    attendiProfitCents: input.attendiProfitCents ?? 0
+    attendiProfitCents: input.attendiProfitCents ?? 0,
+    ownerEarningsCents: input.ownerEarningsCents ?? 0,
+    hotelEarningsCents: input.hotelEarningsCents ?? 0,
+    customerPaidCents: input.customerPaidCents ?? input.grossCents ?? 0,
+    hasCashMovement: input.hasCashMovement ?? true,
+    isEstimated: input.isEstimated ?? false
   };
 }
 
@@ -65,7 +71,7 @@ test("aggregateEventsByMonth handles gross and refunds by month", () => {
 
   assert.equal(monthly[1].key, "2026-02");
   assert.equal(monthly[1].metrics.gmvCents, 15_000);
-  assert.equal(monthly[1].metrics.attendiProfitCents, 2_250);
+  assert.equal(monthly[1].metrics.attendiProfitCents, 3_000);
   assert.equal(monthly[1].metrics.operations, 1);
   assert.equal(monthly[1].metrics.refundedOperations, 1);
 

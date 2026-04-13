@@ -11,6 +11,17 @@ function withRedirect(request: NextRequest, pathname: string, search?: string) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  const isStaticAsset =
+    pathname.includes("/_next/") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    /\.(?:css|js|mjs|map|ico|svg|png|jpg|jpeg|gif|webp|avif|woff|woff2|ttf|otf)$/i.test(pathname);
+
+  if (isStaticAsset) {
+    return NextResponse.next();
+  }
+
   const isLoginRoute = pathname === "/login";
 
   const { supabase, response } = await updateSupabaseSession(request);
@@ -50,5 +61,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"]
+  matcher: ["/((?!api|_next|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|css|js|mjs|map|woff|woff2|ttf|otf)$).*)"]
 };

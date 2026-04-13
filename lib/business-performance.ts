@@ -3,12 +3,20 @@ import type { BusinessEntityType, BusinessEntityTypeFilter } from "@/types";
 export interface BusinessPerformanceFilters {
   year: number;
   month: number | null;
+  dateFrom: string | null;
+  dateTo: string | null;
   entityType: BusinessEntityTypeFilter;
+  operationStatus: string;
+  operationMode: "all" | "direct" | "hotel_linked_external" | "hotel_own_product";
   query: string;
   agentUserId: string;
   page: number;
   pageSize: number;
   selectedEntityId: string | null;
+  historyStatus: string;
+  historyProductId: string;
+  historyPage: number;
+  historyPageSize: number;
 }
 
 export interface BusinessPerformancePeriodBounds {
@@ -25,17 +33,33 @@ export interface ReservationPerformanceEvent {
   entityType: BusinessEntityType;
   agentUserId: string | null;
   status: string | null;
+  flowType:
+    | "direct"
+    | "hotel_linked_external"
+    | "hotel_own_product"
+    | "standard"
+    | "hotel_link_external";
   effectiveAt: string | null;
   refundAt: string | null;
   grossCents: number;
   refundCents: number;
   attendiProfitCents: number;
+  ownerEarningsCents: number;
+  hotelEarningsCents: number;
+  customerPaidCents: number;
+  hasCashMovement: boolean;
+  isEstimated: boolean;
 }
 
 export interface AggregatedPerformanceCents {
   gmvCents: number;
   attendiProfitCents: number;
+  ownerEarningsCents: number;
+  hotelEarningsCents: number;
+  refundsCents: number;
+  customerPaidCents: number;
   operations: number;
+  operationsWithCashMovement: number;
   paidOperations: number;
   refundedOperations: number;
   cancelledOperations: number;
@@ -60,6 +84,11 @@ function toInteger(value: unknown) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
+function toPositiveInteger(value: unknown, fallback: number) {
+  const parsed = toInteger(value);
+  return parsed !== null && parsed > 0 ? parsed : fallback;
+}
+
 function toMonthLabel(date: Date) {
   return new Intl.DateTimeFormat("en-GB", {
     month: "short",
@@ -81,12 +110,21 @@ export function normalizeBusinessPerformanceFilters(
   input: Partial<{
     year: string | number;
     month: string | number;
+    dateFrom: string;
+    dateTo: string;
     entityType: string;
+    status: string;
+    hotelLink: string;
+    operationMode: string;
     query: string;
     agentUserId: string;
     page: string | number;
     pageSize: string | number;
     entity: string;
+    historyStatus: string;
+    historyProduct: string;
+    historyPage: string | number;
+    historyPageSize: string | number;
   }>,
   now = new Date()
 ): BusinessPerformanceFilters {
@@ -106,16 +144,40 @@ export function normalizeBusinessPerformanceFilters(
   const rawPageSize = toInteger(input.pageSize);
   const pageSize =
     rawPageSize !== null && rawPageSize > 0 ? Math.min(rawPageSize, MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
+  const operationMode = (() => {
+    const normalized = String(input.operationMode ?? input.hotelLink ?? "all").trim().toLowerCase();
+    if (normalized === "direct" || normalized === "hotel_linked_external" || normalized === "hotel_own_product") {
+      return normalized;
+    }
+
+    if (normalized === "with_hotel_link") {
+      return "hotel_linked_external";
+    }
+
+    if (normalized === "without_hotel_link") {
+      return "direct";
+    }
+
+    return "all";
+  })();
 
   return {
     year,
     month,
+    dateFrom: String(input.dateFrom ?? "").trim() || null,
+    dateTo: String(input.dateTo ?? "").trim() || null,
     entityType: normalizeBusinessEntityTypeFilter(input.entityType),
+    operationStatus: String(input.status ?? "").trim().toLowerCase(),
+    operationMode,
     query: String(input.query ?? "").trim(),
     agentUserId: String(input.agentUserId ?? "").trim(),
     page,
     pageSize,
-    selectedEntityId: String(input.entity ?? "").trim() || null
+    selectedEntityId: String(input.entity ?? "").trim() || null,
+    historyStatus: String(input.historyStatus ?? "").trim().toLowerCase(),
+    historyProductId: String(input.historyProduct ?? "").trim(),
+    historyPage: toPositiveInteger(input.historyPage, 1),
+    historyPageSize: Math.min(toPositiveInteger(input.historyPageSize, 15), 5000)
   };
 }
 
@@ -218,7 +280,12 @@ function createZeroAggregated(): AggregatedPerformanceCents {
   return {
     gmvCents: 0,
     attendiProfitCents: 0,
+    ownerEarningsCents: 0,
+    hotelEarningsCents: 0,
+    refundsCents: 0,
+    customerPaidCents: 0,
     operations: 0,
+    operationsWithCashMovement: 0,
     paidOperations: 0,
     refundedOperations: 0,
     cancelledOperations: 0,
@@ -239,7 +306,12 @@ function finalizeAverage(metrics: AggregatedPerformanceCents) {
 function mergeAggregated(target: AggregatedPerformanceCents, source: AggregatedPerformanceCents) {
   target.gmvCents += source.gmvCents;
   target.attendiProfitCents += source.attendiProfitCents;
+  target.ownerEarningsCents += source.ownerEarningsCents;
+  target.hotelEarningsCents += source.hotelEarningsCents;
+  target.refundsCents += source.refundsCents;
+  target.customerPaidCents += source.customerPaidCents;
   target.operations += source.operations;
+  target.operationsWithCashMovement += source.operationsWithCashMovement;
   target.paidOperations += source.paidOperations;
   target.refundedOperations += source.refundedOperations;
   target.cancelledOperations += source.cancelledOperations;
@@ -262,15 +334,6 @@ function matchesEventScope(
   return true;
 }
 
-function profitRefundCents(event: ReservationPerformanceEvent) {
-  if (event.refundCents <= 0 || event.attendiProfitCents <= 0 || event.grossCents <= 0) {
-    return 0;
-  }
-
-  const ratio = Math.min(1, event.refundCents / event.grossCents);
-  return Math.round(event.attendiProfitCents * ratio);
-}
-
 export function aggregateEventsForPeriod(
   events: ReservationPerformanceEvent[],
   period: BusinessPerformancePeriodBounds,
@@ -291,6 +354,9 @@ export function aggregateEventsForPeriod(
 
     if (inGrossPeriod) {
       metrics.operations += 1;
+      if (event.hasCashMovement) {
+        metrics.operationsWithCashMovement += 1;
+      }
 
       const statusGroup = classifyReservationStatus(event.status, event.refundCents > 0);
       if (statusGroup === "cancelled") metrics.cancelledOperations += 1;
@@ -298,12 +364,15 @@ export function aggregateEventsForPeriod(
       if (statusGroup === "paid") metrics.paidOperations += 1;
 
       metrics.gmvCents += Math.max(0, event.grossCents);
-      metrics.attendiProfitCents += Math.max(0, event.attendiProfitCents);
+      metrics.attendiProfitCents += event.attendiProfitCents;
+      metrics.ownerEarningsCents += event.ownerEarningsCents;
+      metrics.hotelEarningsCents += event.hotelEarningsCents;
+      metrics.customerPaidCents += Math.max(0, event.customerPaidCents);
     }
 
     if (inRefundPeriod) {
       metrics.gmvCents -= Math.max(0, event.refundCents);
-      metrics.attendiProfitCents -= Math.max(0, profitRefundCents(event));
+      metrics.refundsCents += Math.max(0, event.refundCents);
     }
   });
 
@@ -351,6 +420,9 @@ export function aggregateEventsByMonth(
 
         if (bucket) {
           bucket.metrics.operations += 1;
+          if (event.hasCashMovement) {
+            bucket.metrics.operationsWithCashMovement += 1;
+          }
 
           const statusGroup = classifyReservationStatus(event.status, event.refundCents > 0);
           if (statusGroup === "cancelled") bucket.metrics.cancelledOperations += 1;
@@ -358,7 +430,10 @@ export function aggregateEventsByMonth(
           if (statusGroup === "paid") bucket.metrics.paidOperations += 1;
 
           bucket.metrics.gmvCents += Math.max(0, event.grossCents);
-          bucket.metrics.attendiProfitCents += Math.max(0, event.attendiProfitCents);
+          bucket.metrics.attendiProfitCents += event.attendiProfitCents;
+          bucket.metrics.ownerEarningsCents += event.ownerEarningsCents;
+          bucket.metrics.hotelEarningsCents += event.hotelEarningsCents;
+          bucket.metrics.customerPaidCents += Math.max(0, event.customerPaidCents);
         }
       }
     }
@@ -372,7 +447,7 @@ export function aggregateEventsByMonth(
 
         if (bucket) {
           bucket.metrics.gmvCents -= Math.max(0, event.refundCents);
-          bucket.metrics.attendiProfitCents -= Math.max(0, profitRefundCents(event));
+          bucket.metrics.refundsCents += Math.max(0, event.refundCents);
         }
       }
     }

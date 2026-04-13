@@ -297,6 +297,17 @@ function matchesDateRange(value: string | null, fromISO: string | null, toISO: s
   return true;
 }
 
+function getVerificationSortTimestamp(row: VerificationRequestRow) {
+  const activityAt = getRequestLastActivityDate(row.last_submitted_at, row.updated_at, row.submitted_at);
+
+  if (!activityAt) {
+    return 0;
+  }
+
+  const timestamp = new Date(activityAt).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 export async function listVerificationRequests({
   query,
   accountType,
@@ -324,6 +335,7 @@ export async function listVerificationRequests({
       "request_id,user_id,full_name,profile_username,current_account_type,business_details_email,request_status,target_account_type,legal_name,tax_id,company_email,company_phone,payload,request_source_normalized,request_kind,submitted_at,last_submitted_at,last_admin_email_sent_at,last_email_action,reminder_count,updated_at,reviewed_at,reviewed_by,review_note,review_notes,admin_notes,rejected_reason,is_real_pending,is_visible_for_admin_queue,request_source_bucket,last_activity_at",
       { count: "exact" }
     )
+    .order("is_real_pending", { ascending: false })
     .order("updated_at", { ascending: false })
     .range(from, to);
 
@@ -491,12 +503,23 @@ async function listVerificationRequestsFallback({
       .some((value) => String(value).toLowerCase().includes(token));
   });
 
+  const sorted = filtered.sort((a, b) => {
+    const aIsRealPending = isRealPendingVerificationRequest(a.status, a.payload);
+    const bIsRealPending = isRealPendingVerificationRequest(b.status, b.payload);
+
+    if (aIsRealPending !== bIsRealPending) {
+      return aIsRealPending ? -1 : 1;
+    }
+
+    return getVerificationSortTimestamp(b) - getVerificationSortTimestamp(a);
+  });
+
   const from = (currentPage - 1) * currentPageSize;
   const to = from + currentPageSize;
 
   return {
-    rows: filtered.slice(from, to),
-    total: filtered.length
+    rows: sorted.slice(from, to),
+    total: sorted.length
   };
 }
 

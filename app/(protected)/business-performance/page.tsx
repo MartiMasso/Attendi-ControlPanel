@@ -12,10 +12,19 @@ interface BusinessPerformancePageProps {
   searchParams: {
     year?: string;
     month?: string;
+    dateFrom?: string;
+    dateTo?: string;
     entityType?: string;
+    status?: string;
+    operationMode?: string;
+    hotelLink?: string;
     q?: string;
     agent?: string;
     entity?: string;
+    historyStatus?: string;
+    historyProduct?: string;
+    historyPage?: string;
+    historyPageSize?: string;
   };
 }
 
@@ -51,10 +60,19 @@ export default async function BusinessPerformancePage({ searchParams }: Business
     data = await getBusinessPerformancePageData({
       year: firstParam(searchParams.year),
       month: firstParam(searchParams.month),
+      dateFrom: firstParam(searchParams.dateFrom),
+      dateTo: firstParam(searchParams.dateTo),
       entityType: firstParam(searchParams.entityType),
+      status: firstParam(searchParams.status),
+      operationMode: firstParam(searchParams.operationMode),
+      hotelLink: firstParam(searchParams.hotelLink),
       q: firstParam(searchParams.q),
       agent: firstParam(searchParams.agent),
-      entity: firstParam(searchParams.entity)
+      entity: firstParam(searchParams.entity),
+      historyStatus: firstParam(searchParams.historyStatus),
+      historyProduct: firstParam(searchParams.historyProduct),
+      historyPage: firstParam(searchParams.historyPage),
+      historyPageSize: firstParam(searchParams.historyPageSize)
     });
   } catch (error) {
     loadError = error instanceof Error ? error.message : "Unable to load Business Performance section.";
@@ -106,6 +124,21 @@ export default async function BusinessPerformancePage({ searchParams }: Business
           <option value="business">Business</option>
           <option value="hotel">Hotel</option>
         </Select>
+        <Select name="status" defaultValue={data.filters.operationStatus}>
+          <option value="">All operation statuses</option>
+          <option value="pending">pending</option>
+          <option value="accepted">accepted</option>
+          <option value="confirmed">confirmed</option>
+          <option value="completed">completed</option>
+          <option value="cancelled">cancelled</option>
+          <option value="refunded">refunded</option>
+        </Select>
+        <Select name="operationMode" defaultValue={data.filters.operationMode}>
+          <option value="all">All operation modes</option>
+          <option value="direct">Direct</option>
+          <option value="hotel_linked_external">Hotel linked external</option>
+          <option value="hotel_own_product">Hotel own product</option>
+        </Select>
         <Select name="agent" defaultValue={data.filters.agentUserId}>
           <option value="">All agents</option>
           {data.agentOptions.map((agent) => (
@@ -114,7 +147,9 @@ export default async function BusinessPerformancePage({ searchParams }: Business
             </option>
           ))}
         </Select>
-        <Input name="q" defaultValue={data.filters.query} placeholder="Initial filter by name, username or email" className="xl:col-span-1" />
+        <Input type="date" name="dateFrom" defaultValue={data.filters.dateFrom ?? ""} />
+        <Input type="date" name="dateTo" defaultValue={data.filters.dateTo ?? ""} />
+        <Input name="q" defaultValue={data.filters.query} placeholder="Initial filter by name, username or email" className="xl:col-span-2" />
         <button
           type="submit"
           className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-white transition hover:bg-primary-strong"
@@ -123,10 +158,11 @@ export default async function BusinessPerformancePage({ searchParams }: Business
         </button>
       </form>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <MetricCard title={`Total generated (${data.periodLabel})`} value={`EUR ${data.kpis.gmv.toFixed(2)}`} />
-        <MetricCard title={`Attendi profit (${data.periodLabel})`} value={`EUR ${data.kpis.attendiProfit.toFixed(2)}`} />
-        <MetricCard title={`No. reservations/operations (${data.periodLabel})`} value={data.kpis.operations} />
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title={`GMV Net (${data.periodLabel})`} value={`EUR ${data.kpis.gmv.toFixed(2)}`} />
+        <MetricCard title={`Attendi Net (${data.periodLabel})`} value={`EUR ${data.kpis.attendiNet.toFixed(2)}`} />
+        <MetricCard title={`Ops Total (${data.periodLabel})`} value={data.kpis.operations} />
+        <MetricCard title={`Ops Cash (${data.periodLabel})`} value={data.kpis.operationsWithCashMovement} />
       </section>
 
       {data.notes.length ? (
