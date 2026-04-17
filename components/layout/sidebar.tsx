@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
+  Building2,
   BookCheck,
   Briefcase,
   ClipboardList,
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/business-performance", label: "Business Performance", icon: LineChart },
+  { href: "/hotels", label: "Hotels", icon: Building2 },
   { href: "/users", label: "Users", icon: Users },
   { href: "/verifications", label: "Verifications", icon: ShieldCheck },
   { href: "/reservations", label: "Reservations", icon: ClipboardList },

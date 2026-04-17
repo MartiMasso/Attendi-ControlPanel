@@ -16,7 +16,7 @@ interface ListUsersInput {
 
 const UPGRADABLE_TYPES: AccountType[] = ["consumer", "business", "hotel"];
 const DEFAULT_K_HOTEL = 0.4;
-const DEFAULT_STANDARD_COMMISSION_PCT = 10;
+const DEFAULT_STANDARD_COMMISSION_PCT = 12.5;
 
 function toOptionalText(value: unknown) {
   if (typeof value !== "string") {
@@ -108,7 +108,7 @@ export async function listUsers({
 
   let statement = supabase
     .from("profiles")
-    .select("id,full_name,username,account_type,verification_status,created_at", { count: "exact" })
+    .select("id,full_name,username,profile_photo_url,account_type,verification_status,created_at", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(from, to);
 
@@ -144,6 +144,7 @@ export async function listUsers({
     id: string;
     full_name: string | null;
     username: string;
+    profile_photo_url: string | null;
     account_type: "consumer" | "business" | "hotel";
     verification_status: string;
     created_at: string | null;
@@ -181,7 +182,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id,full_name,username,account_type,verification_status,created_at,comision_hotel")
+    .select("id,full_name,username,profile_photo_url,account_type,verification_status,created_at,comision_hotel")
     .eq("id", userId)
     .maybeSingle();
 
@@ -428,6 +429,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
       id: profile.id as string,
       full_name: profile.full_name as string | null,
       username: profile.username as string,
+      profile_photo_url: (profile as { profile_photo_url?: string | null }).profile_photo_url ?? null,
       email: emailMap.get(userId) ?? null,
       account_type: profile.account_type as "consumer" | "business" | "hotel",
       verification_status: effectiveVerificationStatus,

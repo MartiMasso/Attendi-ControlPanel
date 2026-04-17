@@ -40,6 +40,7 @@ export interface UserRow {
   id: string;
   full_name: string | null;
   username: string;
+  profile_photo_url: string | null;
   email: string | null;
   account_type: AccountType;
   verification_status: VerificationStatus;
@@ -304,6 +305,7 @@ export interface BusinessPerformanceEntityRow {
   id: string;
   name: string;
   username: string | null;
+  profilePhotoUrl: string | null;
   email: string | null;
   entityType: BusinessEntityType;
   latitude: number | null;

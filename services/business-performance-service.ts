@@ -30,6 +30,7 @@ interface RawEntityRow {
   id: string;
   full_name: string | null;
   username: string | null;
+  profile_photo_url: string | null;
   account_type: BusinessEntityType;
   latitude: number | null;
   longitude: number | null;
@@ -894,7 +895,7 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
   const entityQuery = applyEntityFilters(
     supabase
       .from("profiles")
-      .select("id,full_name,username,account_type,latitude,longitude,precise_location", { count: "exact" })
+      .select("id,full_name,username,profile_photo_url,account_type,latitude,longitude,precise_location", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(0, Math.max(0, MAX_KPI_ENTITY_SCOPE - 1)),
     filters,
@@ -1016,6 +1017,7 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
       id: entity.id,
       name: getEntityDisplayName(entity),
       username: toOptionalText(entity.username),
+      profilePhotoUrl: toOptionalText(entity.profile_photo_url),
       email: toOptionalText(emailMap.get(entity.id)) ?? toOptionalText(entity.username),
       entityType: entity.account_type,
       latitude: entity.latitude,

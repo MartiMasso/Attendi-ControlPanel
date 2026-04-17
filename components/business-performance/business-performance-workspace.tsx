@@ -37,6 +37,20 @@ function formatCents(value: number) {
   return toEuroCurrency(value / 100);
 }
 
+function getAvatarInitial(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return "E";
+  }
+
+  return trimmed.charAt(0).toUpperCase();
+}
+
+function toBackgroundImage(url: string) {
+  const safeUrl = url.replace(/"/g, "%22");
+  return `url("${safeUrl}")`;
+}
+
 function renderHistoryTable(rows: BusinessPerformanceEntityDetail["history"]["rows"], expanded = false) {
   return (
     <DataTable>
@@ -330,12 +344,25 @@ export function BusinessPerformanceWorkspace({
                       onClick={() => selectEntity(entity.id)}
                       className="flex min-w-0 flex-1 items-start justify-between gap-2 text-left"
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-text">{entity.name}</p>
-                        <p className="truncate text-xs text-text-muted">{entity.email ?? entity.username ?? entity.id}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <Badge color={entity.entityType === "hotel" ? "warning" : "info"}>{entity.entityType}</Badge>
-                          {entity.assignedAgentName ? <Badge color="neutral">{entity.assignedAgentName}</Badge> : null}
+                      <div className="flex min-w-0 items-start gap-2">
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-[#eaf1ff] text-xs font-semibold text-primary">
+                          {entity.profilePhotoUrl ? (
+                            <div
+                              className="h-full w-full bg-cover bg-center bg-no-repeat"
+                              style={{ backgroundImage: toBackgroundImage(entity.profilePhotoUrl) }}
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <span>{getAvatarInitial(entity.name)}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-text">{entity.name}</p>
+                          <p className="truncate text-xs text-text-muted">{entity.email ?? entity.username ?? entity.id}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <Badge color={entity.entityType === "hotel" ? "warning" : "info"}>{entity.entityType}</Badge>
+                            {entity.assignedAgentName ? <Badge color="neutral">{entity.assignedAgentName}</Badge> : null}
+                          </div>
                         </div>
                       </div>
                       <ChevronRight size={14} className={cn("mt-1 shrink-0 text-text-muted", isSelected ? "text-primary" : "")} />

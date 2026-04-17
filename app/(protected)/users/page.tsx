@@ -27,6 +27,20 @@ function firstParam(value?: string | string[]) {
   return value;
 }
 
+function getAvatarInitial(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return "U";
+  }
+
+  return trimmed.charAt(0).toUpperCase();
+}
+
+function toBackgroundImage(url: string) {
+  const safeUrl = url.replace(/"/g, "%22");
+  return `url("${safeUrl}")`;
+}
+
 function buildPageHref(searchParams: UsersPageProps["searchParams"], page: number) {
   const params = new URLSearchParams();
 
@@ -106,8 +120,23 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
             {rows.map((user) => (
               <TableRow key={user.id}>
                 <TableCell>
-                  <div className="font-medium text-text">{user.full_name || user.username}</div>
-                  <div className="text-xs text-text-muted">{user.username}</div>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-[#eaf1ff] text-sm font-semibold text-primary">
+                      {user.profile_photo_url ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center bg-no-repeat"
+                          style={{ backgroundImage: toBackgroundImage(user.profile_photo_url) }}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span>{getAvatarInitial(user.full_name || user.username)}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-text">{user.full_name || user.username}</div>
+                      <div className="truncate text-xs text-text-muted">{user.username}</div>
+                    </div>
+                  </div>
                 </TableCell>
                 <TableCell>{user.email ?? <span className="text-text-muted">Not exposed</span>}</TableCell>
                 <TableCell>
