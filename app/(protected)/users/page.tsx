@@ -15,6 +15,7 @@ interface UsersPageProps {
     q?: string;
     accountType?: string;
     verificationStatus?: string;
+    sortBy?: string;
     page?: string;
   };
 }
@@ -47,10 +48,12 @@ function buildPageHref(searchParams: UsersPageProps["searchParams"], page: numbe
   const q = firstParam(searchParams.q);
   const accountType = firstParam(searchParams.accountType);
   const verificationStatus = firstParam(searchParams.verificationStatus);
+  const sortBy = firstParam(searchParams.sortBy);
 
   if (q) params.set("q", q);
   if (accountType) params.set("accountType", accountType);
   if (verificationStatus) params.set("verificationStatus", verificationStatus);
+  if (sortBy) params.set("sortBy", sortBy);
   params.set("page", String(page));
 
   return `/users?${params.toString()}`;
@@ -60,6 +63,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
   const q = firstParam(searchParams.q) ?? "";
   const accountType = firstParam(searchParams.accountType) ?? "";
   const verificationStatus = firstParam(searchParams.verificationStatus) ?? "";
+  const sortBy = firstParam(searchParams.sortBy) ?? "created_desc";
   const page = Number(firstParam(searchParams.page) ?? "1");
   const currentPage = Number.isFinite(page) && page > 0 ? page : 1;
 
@@ -67,6 +71,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
     query: q,
     accountType,
     verificationStatus,
+    sortBy,
     page: currentPage,
     pageSize: 30
   });
@@ -80,7 +85,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
         description="Monitor and manage consumers, businesses, and hotels registered in Attendi."
       />
 
-      <form className="grid gap-3 rounded-xl border border-border bg-surface-elevated p-4 md:grid-cols-4" method="GET">
+      <form className="grid gap-3 rounded-xl border border-border bg-surface-elevated p-4 md:grid-cols-5" method="GET">
         <Input name="q" defaultValue={q} placeholder="Search by name, username or ID" />
         <Select name="accountType" defaultValue={accountType}>
           <option value="">All account types</option>
@@ -94,6 +99,14 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
+        </Select>
+        <Select name="sortBy" defaultValue={sortBy}>
+          <option value="created_desc">Newest first</option>
+          <option value="created_asc">Oldest first</option>
+          <option value="name_asc">Name (A-Z)</option>
+          <option value="name_desc">Name (Z-A)</option>
+          <option value="verification_asc">Verification (A-Z)</option>
+          <option value="verification_desc">Verification (Z-A)</option>
         </Select>
         <button
           type="submit"

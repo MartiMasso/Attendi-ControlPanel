@@ -10,6 +10,7 @@ interface ListUsersInput {
   query?: string;
   accountType?: string;
   verificationStatus?: string;
+  sortBy?: string;
   page?: number;
   pageSize?: number;
 }
@@ -17,6 +18,13 @@ interface ListUsersInput {
 const UPGRADABLE_TYPES: AccountType[] = ["consumer", "business", "hotel"];
 const DEFAULT_K_HOTEL = 0.4;
 const DEFAULT_STANDARD_COMMISSION_PCT = 12.5;
+type UserListSort =
+  | "created_desc"
+  | "created_asc"
+  | "name_asc"
+  | "name_desc"
+  | "verification_asc"
+  | "verification_desc";
 
 function toOptionalText(value: unknown) {
   if (typeof value !== "string") {
@@ -46,6 +54,25 @@ function roundTwo(value: number) {
 
 function isRecoverableReadError(error: { code?: string; message?: string } | null) {
   return isMissingDatabaseObject(error as never) || isPermissionError(error as never);
+}
+
+function normalizeUserListSort(value?: string): UserListSort {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  switch (normalized) {
+    case "created_asc":
+      return "created_asc";
+    case "name_asc":
+      return "name_asc";
+    case "name_desc":
+      return "name_desc";
+    case "verification_asc":
+      return "verification_asc";
+    case "verification_desc":
+      return "verification_desc";
+    case "created_desc":
+    default:
+      return "created_desc";
+  }
 }
 
 async function getRealPendingVerificationUserIdSet(userIds?: string[]) {
@@ -89,11 +116,13 @@ export async function listUsers({
   query,
   accountType,
   verificationStatus,
+  sortBy,
   page = 1,
   pageSize = 30
 }: ListUsersInput) {
   const supabase = createSupabaseServerClient();
   const normalizedVerificationStatus = verificationStatus ? verificationStatus.toLowerCase() : "";
+  const normalizedSort = normalizeUserListSort(sortBy);
   const needsRealPendingFilter = normalizedVerificationStatus === "pending";
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
@@ -108,9 +137,7 @@ export async function listUsers({
 
   let statement = supabase
     .from("profiles")
-    .select("id,full_name,username,profile_photo_url,account_type,verification_status,created_at", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range(from, to);
+    .select("id,full_name,username,profile_photo_url,account_type,verification_status,created_at", { count: "exact" });
 
   if (needsRealPendingFilter) {
     statement = statement.in("id", Array.from(realPendingUserIds));
@@ -133,6 +160,32 @@ export async function listUsers({
       statement = statement.or(`full_name.ilike.%${token}%,username.ilike.%${token}%,business_name.ilike.%${token}%`);
     }
   }
+
+  if (normalizedSort === "created_asc") {
+    statement = statement.order("created_at", { ascending: true });
+  } else if (normalizedSort === "name_asc") {
+    statement = statement
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .order("username", { ascending: true, nullsFirst: false });
+  } else if (normalizedSort === "name_desc") {
+    statement = statement
+      .order("full_name", { ascending: false, nullsFirst: false })
+      .order("username", { ascending: false, nullsFirst: false });
+  } else if (normalizedSort === "verification_asc") {
+    statement = statement
+      .order("verification_status", { ascending: true })
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .order("username", { ascending: true, nullsFirst: false });
+  } else if (normalizedSort === "verification_desc") {
+    statement = statement
+      .order("verification_status", { ascending: false })
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .order("username", { ascending: true, nullsFirst: false });
+  } else {
+    statement = statement.order("created_at", { ascending: false });
+  }
+
+  statement = statement.range(from, to);
 
   const { data, error, count } = await statement;
 
