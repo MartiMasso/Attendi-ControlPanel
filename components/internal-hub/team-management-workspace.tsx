@@ -123,7 +123,7 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const REMINDER_EMAIL = "attendi.rent.app@gmail.com";
 
 const MEMBER_COLORS = ["#125fd6", "#1f8f52", "#d17e13", "#7c3aed", "#0891b2", "#cf3d48", "#475569"];
-const DEFAULT_COMPANY_CATEGORIES = ["Hotel", "Camping", "Alojamiento Otro"];
+const DEFAULT_COMPANY_CATEGORIES = ["Hotel/Hub"];
 const COMPANY_STATUSES: CompanyStatus[] = ["Por contactar", "Contactado", "Interesado", "En negociación", "Cerrado", "Descartado"];
 const COMPANY_PRIORITIES: CompanyPriority[] = ["Baja", "Media", "Alta"];
 const COMPANY_PRIORITY_SORT: CompanyPriority[] = ["Alta", "Media", "Baja"];
@@ -200,9 +200,7 @@ const companyCategoryColors = [
 ];
 
 const fixedCompanyCategoryClass: Record<string, string> = {
-  hotel: "bg-blue-100 text-blue-800",
-  camping: "bg-teal-100 text-teal-800",
-  "alojamiento otro": "bg-slate-100 text-slate-700"
+  "hotel/hub": "bg-blue-100 text-blue-800"
 };
 
 const companyStatusClass: Record<CompanyStatus, string> = {
@@ -278,6 +276,11 @@ function getCompanyCategories(values: string[]) {
   });
 
   return categories;
+}
+
+function getKnownCompanyCategory(value: string, categories: string[]) {
+  const normalized = normalizeCompanyCategory(value).toLocaleLowerCase("es");
+  return categories.find((category) => category.toLocaleLowerCase("es") === normalized) ?? categories[0] ?? "Hotel/Hub";
 }
 
 function createId(prefix: string) {
@@ -503,7 +506,7 @@ function buildInitialWorkspace(initialMembers: InternalHubMember[], initialCompa
         companyName: "Hotel Miramar",
         email: "partners@miramar.example",
         phone: "+34 600 000 001",
-        category: categories[0] ?? "Hotel",
+        category: categories[0] ?? "Hotel/Hub",
         status: "Contactado",
         priority: "Alta",
         ownerId: firstMember,
@@ -515,7 +518,7 @@ function buildInitialWorkspace(initialMembers: InternalHubMember[], initialCompa
         companyName: "Barcelona Experiences",
         email: "hello@bcnexperiences.example",
         phone: "+34 600 000 002",
-        category: categories[3] ?? categories[0] ?? "Hotel",
+        category: categories[1] ?? categories[0] ?? "Hotel/Hub",
         status: "Interesado",
         priority: "Media",
         ownerId: secondMember,
@@ -745,8 +748,8 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
   }, [workspace.companies]);
 
   const companyCategories = useMemo(() => {
-    return getCompanyCategories([...DEFAULT_COMPANY_CATEGORIES, ...initialCompanyCategories, ...workspace.companies.map((company) => company.category)]);
-  }, [initialCompanyCategories, workspace.companies]);
+    return getCompanyCategories([...DEFAULT_COMPANY_CATEGORIES, ...initialCompanyCategories]);
+  }, [initialCompanyCategories]);
 
   const companyCalendarDays = useMemo(() => getMonthCalendarDays(companyCalendarMonth), [companyCalendarMonth]);
   const timeline = useMemo(() => getTimeline(ganttAnchor, ganttSpan), [ganttAnchor, ganttSpan]);
@@ -920,7 +923,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
           companyName: "",
           email: "",
           phone: "",
-          category: companyCategories[0] ?? "Hotel",
+          category: companyCategories[0] ?? "Hotel/Hub",
           status: "Por contactar",
           priority: "Media",
           ownerId: current.members[0]?.id ?? "",
@@ -1558,11 +1561,11 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                     </td>
                     <td className="border-b border-r border-border px-3 py-2">
                       <select
-                        value={company.category}
-                        onChange={(event) => updateCompany(company.id, { category: event.target.value as CompanyCategory })}
+                        value={getKnownCompanyCategory(company.category, companyCategories)}
+                        onChange={(event) => updateCompany(company.id, { category: event.target.value })}
                         className={cn(
                           "h-7 max-w-full rounded-full border-0 px-3 pr-7 text-sm font-semibold outline-none ring-1 ring-transparent transition focus:ring-primary/40",
-                          getCompanyCategoryClass(company.category)
+                          getCompanyCategoryClass(getKnownCompanyCategory(company.category, companyCategories))
                         )}
                         aria-label={`Categoría fila ${index + 1}`}
                       >

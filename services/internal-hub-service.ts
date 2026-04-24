@@ -33,7 +33,7 @@ interface InternalHubInsights {
 
 const TASK_STATUS_VALUES: InternalTaskStatus[] = ["todo", "in_progress", "blocked", "done"];
 const TASK_PRIORITY_VALUES: InternalTaskPriority[] = ["low", "medium", "high", "urgent"];
-const DEFAULT_INTERNAL_COMPANY_CATEGORIES = ["Hotel", "Camping", "Alojamiento Otro"];
+const DEFAULT_INTERNAL_COMPANY_CATEGORIES = ["Hotel/Hub"];
 
 function sanitizeQuery(query: string) {
   return query.replace(/[,()]/g, " ").trim();
@@ -65,15 +65,12 @@ function normalizeCategoryLabel(value: unknown) {
     return null;
   }
 
-  const compact = value.replace(/[_-]/g, " ").replace(/\s+/g, " ").trim();
+  const compact = value.replace(/_/g, " ").replace(/\s+/g, " ").trim();
   if (!compact) {
     return null;
   }
 
-  return compact
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
+  return compact;
 }
 
 function uniqueCategories(values: Array<string | null>) {
@@ -111,33 +108,61 @@ export async function listInternalCompanyCategories(): Promise<string[]> {
   const supabase = createSupabaseServerClient();
   const defaultCategories = [...DEFAULT_INTERNAL_COMPANY_CATEGORIES];
 
-  const { data: businessRows, error: businessError } = await supabase
-    .from("business_details")
-    .select("company_type,organization_type")
-    .limit(1000);
+  const { data: subcategoryRows, error: subcategoryError } = await supabase.from("subcategories").select("category_id").limit(2000);
 
-  if (!businessError) {
-    const rows = (businessRows ?? []) as Array<{ company_type?: string | null; organization_type?: string | null }>;
-    const categories = uniqueCategories(rows.flatMap((row) => [row.company_type ?? null, row.organization_type ?? null]));
-    return mergeCategoryLists(defaultCategories, categories);
+  if (subcategoryError && !(isMissingDatabaseObject(subcategoryError) || isPermissionError(subcategoryError))) {
+    throw new Error(subcategoryError.message);
   }
 
-  if (!(isMissingDatabaseObject(businessError) || isPermissionError(businessError))) {
-    throw new Error(businessError.message);
+  const usedCategoryIds = subcategoryError
+    ? null
+    : Array.from(
+        new Set(
+          ((subcategoryRows ?? []) as Array<{ category_id?: string | number | null }>)
+            .map((row) => row.category_id)
+            .filter((value): value is string | number => value !== null && value !== undefined)
+            .map(String)
+        )
+      );
+
+  if (usedCategoryIds && !usedCategoryIds.length) {
+    return defaultCategories;
   }
 
-  const { data: productRows, error: productError } = await supabase.from("products").select("category").limit(1000);
+  const attempts = [
+    { select: "id,name", read: (row: Record<string, unknown>) => row.name },
+    { select: "id,title", read: (row: Record<string, unknown>) => row.title },
+    { select: "id,label", read: (row: Record<string, unknown>) => row.label },
+    { select: "id,category", read: (row: Record<string, unknown>) => row.category }
+  ];
 
-  if (productError) {
-    if (isMissingDatabaseObject(productError) || isPermissionError(productError)) {
+  for (const attempt of attempts) {
+    let statement = supabase.from("categories").select(attempt.select).limit(1000);
+
+    if (usedCategoryIds) {
+      statement = statement.in("id", usedCategoryIds);
+    }
+
+    const { data, error } = await statement;
+
+    if (!error) {
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+      const categories = uniqueCategories(rows.map((row) => attempt.read(row) as string | null));
+      return mergeCategoryLists(defaultCategories, categories);
+    }
+
+    if (isMissingDatabaseObject(error)) {
+      continue;
+    }
+
+    if (isPermissionError(error)) {
       return defaultCategories;
     }
 
-    throw new Error(productError.message);
+    throw new Error(error.message);
   }
 
-  const categories = uniqueCategories(((productRows ?? []) as Array<{ category?: string | null }>).map((row) => row.category ?? null));
-  return mergeCategoryLists(defaultCategories, categories);
+  return defaultCategories;
 }
 
 export async function listInternalMembers(): Promise<InternalHubMember[]> {
