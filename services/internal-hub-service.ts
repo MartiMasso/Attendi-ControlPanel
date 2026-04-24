@@ -33,6 +33,7 @@ interface InternalHubInsights {
 
 const TASK_STATUS_VALUES: InternalTaskStatus[] = ["todo", "in_progress", "blocked", "done"];
 const TASK_PRIORITY_VALUES: InternalTaskPriority[] = ["low", "medium", "high", "urgent"];
+const DEFAULT_INTERNAL_COMPANY_CATEGORIES = ["Hotel", "Camping", "Alojamiento Otro"];
 
 function sanitizeQuery(query: string) {
   return query.replace(/[,()]/g, " ").trim();
@@ -57,6 +58,86 @@ function normalizeStatus(status?: string): InternalTaskStatus | null {
 function normalizePriority(priority?: string): InternalTaskPriority | null {
   const normalized = String(priority ?? "").toLowerCase();
   return TASK_PRIORITY_VALUES.includes(normalized as InternalTaskPriority) ? (normalized as InternalTaskPriority) : null;
+}
+
+function normalizeCategoryLabel(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const compact = value.replace(/[_-]/g, " ").replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return null;
+  }
+
+  return compact
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function uniqueCategories(values: Array<string | null>) {
+  const seen = new Set<string>();
+  const categories: string[] = [];
+
+  values.forEach((value) => {
+    const label = normalizeCategoryLabel(value);
+    if (!label) return;
+
+    const key = label.toLocaleLowerCase("es");
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    categories.push(label);
+  });
+
+  return categories;
+}
+
+function mergeCategoryLists(primary: string[], secondary: string[]) {
+  return uniqueCategories([...primary, ...secondary]).sort((left, right) => {
+    const leftIndex = DEFAULT_INTERNAL_COMPANY_CATEGORIES.findIndex((category) => category.toLocaleLowerCase("es") === left.toLocaleLowerCase("es"));
+    const rightIndex = DEFAULT_INTERNAL_COMPANY_CATEGORIES.findIndex((category) => category.toLocaleLowerCase("es") === right.toLocaleLowerCase("es"));
+
+    if (leftIndex !== -1 || rightIndex !== -1) {
+      return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
+    }
+
+    return left.localeCompare(right, "es", { sensitivity: "base" });
+  });
+}
+
+export async function listInternalCompanyCategories(): Promise<string[]> {
+  const supabase = createSupabaseServerClient();
+  const defaultCategories = [...DEFAULT_INTERNAL_COMPANY_CATEGORIES];
+
+  const { data: businessRows, error: businessError } = await supabase
+    .from("business_details")
+    .select("company_type,organization_type")
+    .limit(1000);
+
+  if (!businessError) {
+    const rows = (businessRows ?? []) as Array<{ company_type?: string | null; organization_type?: string | null }>;
+    const categories = uniqueCategories(rows.flatMap((row) => [row.company_type ?? null, row.organization_type ?? null]));
+    return mergeCategoryLists(defaultCategories, categories);
+  }
+
+  if (!(isMissingDatabaseObject(businessError) || isPermissionError(businessError))) {
+    throw new Error(businessError.message);
+  }
+
+  const { data: productRows, error: productError } = await supabase.from("products").select("category").limit(1000);
+
+  if (productError) {
+    if (isMissingDatabaseObject(productError) || isPermissionError(productError)) {
+      return defaultCategories;
+    }
+
+    throw new Error(productError.message);
+  }
+
+  const categories = uniqueCategories(((productRows ?? []) as Array<{ category?: string | null }>).map((row) => row.category ?? null));
+  return mergeCategoryLists(defaultCategories, categories);
 }
 
 export async function listInternalMembers(): Promise<InternalHubMember[]> {

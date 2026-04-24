@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Search } from "lucide-react";
+import { LogOut, Search, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,15 @@ const routeTitles: Record<string, string> = {
   settings: "Settings",
   "internal-hub": "Team Management"
 };
+
+function formatRole(role: string) {
+  return role
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 export function Topbar({
   displayName,
@@ -53,12 +62,12 @@ export function Topbar({
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur lg:px-8">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.08em] text-text-muted">Attendi Internal</p>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold text-text">{currentSection}</h1>
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-text md:text-[1.7rem]">{currentSection}</h1>
             {pendingFeedbackCount > 0 ? <Badge color="warning">{pendingFeedbackCount} new feedback</Badge> : null}
           </div>
+          <div className="mt-1 h-1 w-10 rounded-full bg-primary/70" aria-hidden="true" />
         </div>
 
         <div className="flex items-center gap-2">
@@ -72,9 +81,14 @@ export function Topbar({
               aria-label="Quick search"
             />
           </div>
-          <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-right">
-            <p className="text-sm font-semibold text-text">{displayName}</p>
-            <p className="text-xs uppercase tracking-[0.06em] text-text-muted">{role}</p>
+          <div className="flex h-10 items-center gap-2 rounded-full border border-white/70 bg-white/75 py-1 pl-1.5 pr-3 shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <UserRound size={15} aria-hidden="true" />
+            </span>
+            <div className="min-w-0 text-left leading-tight">
+              <p className="max-w-32 truncate text-sm font-semibold text-text">{displayName}</p>
+              <p className="max-w-32 truncate text-[11px] font-medium text-text-muted">{formatRole(role)}</p>
+            </div>
           </div>
           <Button variant="ghost" size="sm" onClick={handleLogout} disabled={isPending}>
             <LogOut size={14} />
