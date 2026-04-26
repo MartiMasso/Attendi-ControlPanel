@@ -2,16 +2,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 import { getActiveAdminSession } from "@/lib/auth/admin";
+import { sendVerificationEmail } from "@/lib/email-delivery";
 import { mapVerificationDecisionToStatus } from "@/lib/verification-requests";
+import { createVerificationEmailPreview, createVerificationEmailPreviewFromContent } from "@/lib/verification-email";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { createAuditLogEntry } from "@/services/audit-log-service";
+import { getEmailMapByUserIds } from "@/services/profile-helpers";
 import type { VerificationRequestDecision } from "@/types";
 
 interface Payload {
   decision?: VerificationRequestDecision;
   note?: string | null;
+  sendEmail?: boolean;
+  emailSubject?: string | null;
+  emailHeading?: string | null;
+  emailBodyText?: string | null;
+}
+
+interface ReviewRouteContext {
+  params: { id: string };
 }
 
 function normalizeNote(note: unknown) {
@@ -21,6 +32,49 @@ function normalizeNote(note: unknown) {
 
   const trimmed = note.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeEmail(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unable to process verification request.";
+}
+
+function getEmailAction(decision: VerificationRequestDecision) {
+  if (decision === "approve") {
+    return "verification_approved_email_sent";
+  }
+
+  if (decision === "reject") {
+    return "verification_rejected_email_sent";
+  }
+
+  return "verification_needs_changes_email_sent";
+}
+
+function getEmailAttemptAction(decision: VerificationRequestDecision, status: "not_configured" | "failed" | "skipped") {
+  const suffix = status === "not_configured" ? "email_not_configured" : status === "skipped" ? "email_skipped" : "email_failed";
+
+  if (decision === "approve") {
+    return `verification_approved_${suffix}`;
+  }
+
+  if (decision === "reject") {
+    return `verification_rejected_${suffix}`;
+  }
+
+  return `verification_needs_changes_${suffix}`;
 }
 
 async function updateReviewNote(
@@ -56,10 +110,24 @@ async function updateReviewNote(
   return withLegacyReviewNote.error;
 }
 
+async function updateEmailMetadata(
+  requestId: string,
+  values: { last_admin_email_sent_at?: string; last_email_action: string },
+  supabase: SupabaseClient
+) {
+  const result = await supabase.from("verification_requests").update(values).eq("id", requestId);
+
+  if (!result.error || isMissingColumnError(result.error)) {
+    return null;
+  }
+
+  return result.error.message;
+}
+
 async function getProfileSnapshot(userId: string, supabase: SupabaseClient) {
   const withCanPublish = await supabase
     .from("profiles")
-    .select("id,account_type,verification_status,can_publish")
+    .select("id,full_name,username,account_type,verification_status,can_publish")
     .eq("id", userId)
     .maybeSingle();
 
@@ -67,6 +135,8 @@ async function getProfileSnapshot(userId: string, supabase: SupabaseClient) {
     return {
       snapshot: withCanPublish.data
         ? {
+            full_name: (withCanPublish.data.full_name as string | null) ?? null,
+            username: (withCanPublish.data.username as string | null) ?? null,
             account_type: (withCanPublish.data.account_type as string | null) ?? null,
             verification_status: (withCanPublish.data.verification_status as string | null) ?? null,
             can_publish:
@@ -83,7 +153,7 @@ async function getProfileSnapshot(userId: string, supabase: SupabaseClient) {
 
   const withoutCanPublish = await supabase
     .from("profiles")
-    .select("id,account_type,verification_status")
+    .select("id,full_name,username,account_type,verification_status")
     .eq("id", userId)
     .maybeSingle();
 
@@ -94,6 +164,8 @@ async function getProfileSnapshot(userId: string, supabase: SupabaseClient) {
   return {
     snapshot: withoutCanPublish.data
       ? {
+          full_name: (withoutCanPublish.data.full_name as string | null) ?? null,
+          username: (withoutCanPublish.data.username as string | null) ?? null,
           account_type: (withoutCanPublish.data.account_type as string | null) ?? null,
           verification_status: (withoutCanPublish.data.verification_status as string | null) ?? null,
           can_publish: null
@@ -165,7 +237,12 @@ async function updateProfileForReviewDecision(userId: string, values: Record<str
   return null;
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+async function getRecipientEmail(userId: string, fallbackEmail: string | null) {
+  const emailMap = await getEmailMapByUserIds([userId]).catch(() => new Map<string, string>());
+  return normalizeEmail(emailMap.get(userId)) ?? normalizeEmail(fallbackEmail);
+}
+
+async function handlePost(request: Request, { params }: ReviewRouteContext) {
   const session = await getActiveAdminSession();
 
   if (!session) {
@@ -182,7 +259,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const { data: verification, error: verificationError } = await supabase
     .from("verification_requests")
-    .select("id,user_id,requested_account_type,status,reviewed_at,reviewed_by,rejected_reason,updated_at")
+    .select("id,user_id,requested_account_type,status,legal_name,company_email,reviewed_at,reviewed_by,rejected_reason,updated_at")
     .eq("id", params.id)
     .maybeSingle();
 
@@ -226,6 +303,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const previousProfile = profileSnapshotResult.snapshot;
   const note = normalizeNote(payload.note);
+  const emailSubject = normalizeNote(payload.emailSubject);
+  const emailHeading = normalizeNote(payload.emailHeading);
+  const emailBodyText = normalizeNote(payload.emailBodyText);
+  const warnings: string[] = [];
   const nextStatus = mapVerificationDecisionToStatus(payload.decision);
   const reviewedAt = new Date().toISOString();
   const updateError = await updateReviewNote(
@@ -285,33 +366,162 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
   }
 
-  await createAuditLogEntry(supabase, {
-    adminUserId: session.userId,
-    action:
-      payload.decision === "approve"
-        ? "verification_approved"
-        : payload.decision === "reject"
-          ? "verification_rejected"
-          : "verification_needs_changes",
-    entityType: "verification",
-    entityId: params.id,
-    metadata: {
-      reviewedUserId: userId,
-      previousStatus: verification.status,
-      nextStatus,
-      requestedAccountType: verification.requested_account_type,
-      note,
-      previousProfileAccountType: previousProfile.account_type,
-      nextProfileAccountType: updatedProfile?.account_type ?? previousProfile.account_type,
-      previousProfileVerificationStatus: previousProfile.verification_status,
-      nextProfileVerificationStatus: updatedProfile?.verification_status ?? previousProfile.verification_status
-    }
+  const shouldSendEmail = payload.sendEmail !== false;
+  const recipientEmail = shouldSendEmail ? await getRecipientEmail(userId, (verification.company_email as string | null) ?? null) : null;
+  const defaultEmailPreview = createVerificationEmailPreview({
+    decision: payload.decision,
+    recipientName: updatedProfile?.full_name ?? updatedProfile?.username ?? null,
+    companyName: (verification.legal_name as string | null) ?? null,
+    requestedAccountType
   });
+  const emailPreview =
+    shouldSendEmail && recipientEmail
+      ? createVerificationEmailPreviewFromContent({
+          subject: emailSubject ?? defaultEmailPreview.subject,
+          heading: emailHeading ?? defaultEmailPreview.heading,
+          preheader: emailSubject ?? defaultEmailPreview.preheader,
+          bodyText: emailBodyText ?? defaultEmailPreview.bodyText
+        })
+      : null;
+  let emailResult: {
+    requested: boolean;
+    sent: boolean;
+    status: "sent" | "not_configured" | "failed" | "skipped";
+    recipient: string | null;
+    subject: string | null;
+    error: string | null;
+  } = {
+    requested: shouldSendEmail,
+    sent: false,
+    status: shouldSendEmail ? "failed" : "skipped",
+    recipient: recipientEmail,
+    subject: emailPreview?.subject ?? null,
+    error: null
+  };
+
+  if (shouldSendEmail && !recipientEmail) {
+    emailResult = {
+      ...emailResult,
+      status: "skipped",
+      error: "No recipient email found for this user."
+    };
+    warnings.push("Solicitud actualizada, pero no se ha encontrado un email de destino para notificar al usuario.");
+    const metadataError = await updateEmailMetadata(
+      params.id,
+      { last_email_action: getEmailAttemptAction(payload.decision, "skipped") },
+      supabase
+    );
+
+    if (metadataError) {
+      warnings.push(`No se pudo actualizar la metadata del email: ${metadataError}`);
+    }
+  } else if (shouldSendEmail && emailPreview && recipientEmail) {
+    try {
+      const delivery = await sendVerificationEmail({ to: recipientEmail, preview: emailPreview });
+      emailResult = {
+        requested: true,
+        sent: delivery.status === "sent",
+        status: delivery.status,
+        recipient: recipientEmail,
+        subject: emailPreview.subject,
+        error: delivery.message
+      };
+
+      if (delivery.status === "sent") {
+        const metadataError = await updateEmailMetadata(
+          params.id,
+          {
+            last_admin_email_sent_at: new Date().toISOString(),
+            last_email_action: getEmailAction(payload.decision)
+          },
+          supabase
+        );
+
+        if (metadataError) {
+          warnings.push(`Email enviado, pero no se pudo actualizar la metadata del email: ${metadataError}`);
+        }
+      } else if (delivery.message) {
+        const metadataError = await updateEmailMetadata(
+          params.id,
+          { last_email_action: getEmailAttemptAction(payload.decision, delivery.status) },
+          supabase
+        );
+
+        if (metadataError) {
+          warnings.push(`No se pudo actualizar la metadata del email: ${metadataError}`);
+        }
+
+        warnings.push(`Solicitud actualizada, pero el email no se ha enviado: ${delivery.message}`);
+      }
+    } catch (error) {
+      const message = getErrorMessage(error);
+      emailResult = {
+        requested: true,
+        sent: false,
+        status: "failed",
+        recipient: recipientEmail,
+        subject: emailPreview.subject,
+        error: message
+      };
+      const metadataError = await updateEmailMetadata(
+        params.id,
+        { last_email_action: getEmailAttemptAction(payload.decision, "failed") },
+        supabase
+      );
+
+      if (metadataError) {
+        warnings.push(`No se pudo actualizar la metadata del email: ${metadataError}`);
+      }
+
+      warnings.push(`Solicitud actualizada, pero el email no se ha enviado: ${message}`);
+    }
+  }
+
+  try {
+    await createAuditLogEntry(supabase, {
+      adminUserId: session.userId,
+      action:
+        payload.decision === "approve"
+          ? "verification_approved"
+          : payload.decision === "reject"
+            ? "verification_rejected"
+            : "verification_needs_changes",
+      entityType: "verification",
+      entityId: params.id,
+      metadata: {
+        reviewedUserId: userId,
+        previousStatus: verification.status,
+        nextStatus,
+        requestedAccountType: verification.requested_account_type,
+        note,
+        emailSubject: emailPreview?.subject ?? emailSubject,
+        emailHeading: emailPreview?.heading ?? emailHeading,
+        emailBodyText: emailPreview?.bodyText ?? emailBodyText,
+        email: emailResult,
+        previousProfileAccountType: previousProfile.account_type,
+        nextProfileAccountType: updatedProfile?.account_type ?? previousProfile.account_type,
+        previousProfileVerificationStatus: previousProfile.verification_status,
+        nextProfileVerificationStatus: updatedProfile?.verification_status ?? previousProfile.verification_status
+      }
+    });
+  } catch (error) {
+    warnings.push(`Solicitud actualizada, pero no se pudo crear el audit log: ${getErrorMessage(error)}`);
+  }
 
   return NextResponse.json({
     success: true,
     status: nextStatus,
     profileAccountType: updatedProfile?.account_type ?? previousProfile.account_type,
-    profileVerificationStatus: updatedProfile?.verification_status ?? previousProfile.verification_status
+    profileVerificationStatus: updatedProfile?.verification_status ?? previousProfile.verification_status,
+    email: emailResult,
+    warnings
   });
+}
+
+export async function POST(request: Request, context: ReviewRouteContext) {
+  try {
+    return await handlePost(request, context);
+  } catch (error) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+  }
 }

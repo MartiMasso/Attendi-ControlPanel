@@ -580,45 +580,51 @@ export async function getVerificationRequestDetail(requestId: string): Promise<V
   }
 
   if (!request) {
-    const viewResult = await serverClient
-      .from("admin_verification_requests_v1")
-      .select(
-        "request_id,user_id,target_account_type,legal_name,tax_id,company_email,company_phone,payload,request_source_normalized,request_kind,request_status,submitted_at,last_submitted_at,last_admin_email_sent_at,last_email_action,reminder_count,updated_at,reviewed_at,reviewed_by,review_note,review_notes,admin_notes,rejected_reason,created_at"
-      )
-      .eq("request_id", requestId)
-      .maybeSingle();
+    const viewClients = serviceClient ? [serviceClient, serverClient] : [serverClient];
 
-    if (viewResult.error) {
-      if (!isMissingDatabaseObject(viewResult.error) && !isPermissionError(viewResult.error)) {
-        throw new Error(viewResult.error.message);
+    for (const client of viewClients) {
+      const viewResult = await client
+        .from("admin_verification_requests_v1")
+        .select(
+          "request_id,user_id,target_account_type,legal_name,tax_id,company_email,company_phone,payload,request_source_normalized,request_kind,request_status,submitted_at,last_submitted_at,last_admin_email_sent_at,last_email_action,reminder_count,updated_at,reviewed_at,reviewed_by,review_note,review_notes,admin_notes,rejected_reason,created_at"
+        )
+        .eq("request_id", requestId)
+        .maybeSingle();
+
+      if (viewResult.error) {
+        if (!isMissingDatabaseObject(viewResult.error) && !isPermissionError(viewResult.error)) {
+          throw new Error(viewResult.error.message);
+        }
+      } else if (viewResult.data) {
+        const viewRow = viewResult.data as Record<string, unknown>;
+        request = {
+          id: viewRow.request_id,
+          user_id: viewRow.user_id,
+          requested_account_type: viewRow.target_account_type,
+          legal_name: viewRow.legal_name,
+          tax_id: viewRow.tax_id,
+          company_email: viewRow.company_email,
+          company_phone: viewRow.company_phone,
+          payload: viewRow.payload,
+          status: viewRow.request_status,
+          submitted_at: viewRow.submitted_at,
+          last_submitted_at: viewRow.last_submitted_at,
+          last_admin_email_sent_at: viewRow.last_admin_email_sent_at,
+          last_email_action: viewRow.last_email_action,
+          reminder_count: viewRow.reminder_count,
+          updated_at: viewRow.updated_at,
+          reviewed_at: viewRow.reviewed_at,
+          reviewed_by: viewRow.reviewed_by,
+          review_note: viewRow.review_note,
+          review_notes: viewRow.review_notes,
+          admin_notes: viewRow.admin_notes,
+          rejected_reason: viewRow.rejected_reason,
+          created_at: viewRow.created_at,
+          country_code: null
+        } as Record<string, unknown>;
+        readClient = client;
+        break;
       }
-    } else if (viewResult.data) {
-      const viewRow = viewResult.data as Record<string, unknown>;
-      request = {
-        id: viewRow.request_id,
-        user_id: viewRow.user_id,
-        requested_account_type: viewRow.target_account_type,
-        legal_name: viewRow.legal_name,
-        tax_id: viewRow.tax_id,
-        company_email: viewRow.company_email,
-        company_phone: viewRow.company_phone,
-        payload: viewRow.payload,
-        status: viewRow.request_status,
-        submitted_at: viewRow.submitted_at,
-        last_submitted_at: viewRow.last_submitted_at,
-        last_admin_email_sent_at: viewRow.last_admin_email_sent_at,
-        last_email_action: viewRow.last_email_action,
-        reminder_count: viewRow.reminder_count,
-        updated_at: viewRow.updated_at,
-        reviewed_at: viewRow.reviewed_at,
-        reviewed_by: viewRow.reviewed_by,
-        review_note: viewRow.review_note,
-        review_notes: viewRow.review_notes,
-        admin_notes: viewRow.admin_notes,
-        rejected_reason: viewRow.rejected_reason,
-        created_at: viewRow.created_at,
-        country_code: null
-      } as Record<string, unknown>;
     }
   }
 

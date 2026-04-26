@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { DataTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/data-table";
 import { EntityPreview } from "@/components/ui/entity-preview";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { KeyValueList } from "@/components/ui/key-value-list";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -29,10 +30,28 @@ export default async function VerificationDetailPage({ params }: { params: { id:
     notFound();
   }
 
-  const detail = await getVerificationRequestDetail(requestId);
+  let detail = null;
+  let loadError = null;
+
+  try {
+    detail = await getVerificationRequestDetail(requestId);
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : "Unknown error";
+  }
 
   if (!detail) {
-    notFound();
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Solicitud no disponible" description={`Verification request ID: ${requestId}`} />
+        <ErrorState
+          message={
+            loadError
+              ? `No se pudo cargar la solicitud: ${loadError}`
+              : "No se encontró esta solicitud en verification_requests ni en la vista admin. Comprueba que el ID corresponde a una solicitud de verificación."
+          }
+        />
+      </div>
+    );
   }
 
   const request = detail.request;
@@ -62,7 +81,13 @@ export default async function VerificationDetailPage({ params }: { params: { id:
       />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <VerificationReviewForm requestId={String(request.id)} />
+        <VerificationReviewForm
+          requestId={String(request.id)}
+          recipientEmail={request.login_email ?? profile?.login_email ?? request.company_email}
+          recipientName={request.user_full_name ?? request.user_username ?? null}
+          companyName={request.legal_name}
+          requestedAccountType={request.requested_account_type}
+        />
         <Card className="space-y-3">
           <h2 className="text-sm font-semibold text-text">Payload (parsed)</h2>
           <KeyValueList

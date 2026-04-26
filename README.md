@@ -61,11 +61,15 @@ Copy `.env.example` to `.env.local` and provide:
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+RESEND_API_KEY=
+VERIFICATION_EMAIL_FROM=
+VERIFICATION_EMAIL_REPLY_TO=
 ```
 
 Notes:
 - `SUPABASE_SERVICE_ROLE_KEY` is optional and used server-side only for better email enrichment (`auth.users`).
 - The panel works without service role key, but some user emails may show as `Not exposed`.
+- Verification review emails are sent through Resend when `RESEND_API_KEY` and `VERIFICATION_EMAIL_FROM` are configured.
 
 ## Local Setup
 
