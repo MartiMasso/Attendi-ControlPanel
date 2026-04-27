@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Calculator, CheckSquare, ChevronRight, Download, Maximize2, MapPin, X } from "lucide-react";
+import { Calculator, CheckSquare, ChevronRight, CreditCard, Download, Maximize2, MapPin, Search, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { StandardCommissionForm } from "@/components/forms/commission-settings-forms";
 import { DataTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,34 @@ function formatCents(value: number) {
   return toEuroCurrency(value / 100);
 }
 
+function compactId(value: string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+
+  if (value.length <= 16) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
+function formatLedgerDate(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
 function getAvatarInitial(name: string) {
   const trimmed = name.trim();
   if (!trimmed) {
@@ -44,6 +73,55 @@ function getAvatarInitial(name: string) {
   }
 
   return trimmed.charAt(0).toUpperCase();
+}
+
+function getStripeState(entity: {
+  stripeAccountId: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  stripeTransfersEnabled: boolean;
+}) {
+  if (!entity.stripeAccountId) {
+    return {
+      label: "Sin Stripe",
+      color: "warning" as const,
+      description: "No hay cuenta Stripe conectada."
+    };
+  }
+
+  if (entity.chargesEnabled && entity.payoutsEnabled && entity.stripeTransfersEnabled) {
+    return {
+      label: "Stripe operativo",
+      color: "success" as const,
+      description: "Cobros, payouts y transfers activos."
+    };
+  }
+
+  return {
+    label: "Stripe incompleto",
+    color: "warning" as const,
+    description: "La cuenta existe, pero falta alguna capacidad de Stripe."
+  };
+}
+
+function StripeBadge({
+  entity,
+  className
+}: {
+  entity: {
+    stripeAccountId: string | null;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+    stripeTransfersEnabled: boolean;
+  };
+  className?: string;
+}) {
+  const stripeState = getStripeState(entity);
+  return (
+    <Badge color={stripeState.color} className={className}>
+      {stripeState.label}
+    </Badge>
+  );
 }
 
 function toBackgroundImage(url: string) {
@@ -81,8 +159,8 @@ function renderHistoryTable(rows: BusinessPerformanceEntityDetail["history"]["ro
       <TableBody>
         {rows.map((row) => (
           <TableRow key={`ledger-${expanded ? "modal" : "inline"}-${row.reservationId}`}>
-            <TableCell className="whitespace-nowrap">{row.effectiveAt ?? row.createdAt ?? "-"}</TableCell>
-            <TableCell className="whitespace-nowrap">{row.reservationId}</TableCell>
+            <TableCell className="whitespace-nowrap">{formatLedgerDate(row.effectiveAt ?? row.createdAt)}</TableCell>
+            <TableCell className="whitespace-nowrap font-mono text-xs">{expanded ? row.reservationId : compactId(row.reservationId)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatCents(row.grossCustomerCents)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatCents(row.refundedCustomerCents)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatCents(row.ownerAmountCents)}</TableCell>
@@ -297,31 +375,36 @@ export function BusinessPerformanceWorkspace({
   }, [searchParams, selectedEntityDetail]);
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-      <Card className="space-y-4 p-4">
-        <div className="flex items-center justify-between">
+    <section className="grid items-start gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <Card className="flex max-h-none min-h-0 flex-col gap-4 overflow-hidden p-4 xl:sticky xl:top-24 xl:h-[calc(100vh-7rem)]">
+        <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-text">Entities</p>
             <p className="text-xs text-text-muted">
               {filteredEntities.length} shown / {entities.length} loaded
             </p>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => setIsCalculatorOpen(true)}>
+          <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setIsCalculatorOpen(true)}>
             <Calculator size={14} />
-            Calculate commission
+            Calculate
           </Button>
         </div>
 
-        <Input
-          value={listSearch}
-          onChange={(event) => setListSearch(event.target.value)}
-          placeholder="Search this list by name, username or email"
-        />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+          <Input
+            value={listSearch}
+            onChange={(event) => setListSearch(event.target.value)}
+            placeholder="Search name, username or email"
+            className="pl-9"
+          />
+        </div>
 
         {filteredEntities.length ? (
-          <ul className="max-h-[720px] space-y-2 overflow-y-auto pr-1">
+          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {filteredEntities.map((entity) => {
               const isSelected = entity.id === selectedEntityId;
+              const stripeState = getStripeState(entity);
 
               return (
                 <li
@@ -331,7 +414,7 @@ export function BusinessPerformanceWorkspace({
                     isSelected ? "border-primary bg-[#eef4ff]" : "border-border bg-surface-elevated"
                   )}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-2.5">
                     <input
                       type="checkbox"
                       className="mt-1 h-4 w-4 rounded border-border"
@@ -344,8 +427,8 @@ export function BusinessPerformanceWorkspace({
                       onClick={() => selectEntity(entity.id)}
                       className="flex min-w-0 flex-1 items-start justify-between gap-2 text-left"
                     >
-                      <div className="flex min-w-0 items-start gap-2">
-                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-[#eaf1ff] text-xs font-semibold text-primary">
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-[#eaf1ff] text-xs font-semibold text-primary">
                           {entity.profilePhotoUrl ? (
                             <div
                               className="h-full w-full bg-cover bg-center bg-no-repeat"
@@ -361,6 +444,7 @@ export function BusinessPerformanceWorkspace({
                           <p className="truncate text-xs text-text-muted">{entity.email ?? entity.username ?? entity.id}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
                             <Badge color={entity.entityType === "hotel" ? "warning" : "info"}>{entity.entityType}</Badge>
+                            <Badge color={stripeState.color}>{stripeState.label}</Badge>
                             {entity.assignedAgentName ? <Badge color="neutral">{entity.assignedAgentName}</Badge> : null}
                           </div>
                         </div>
@@ -369,11 +453,16 @@ export function BusinessPerformanceWorkspace({
                     </button>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.08em] text-text-muted">GMV Net ({periodLabel})</p>
-                      <p className="text-base font-semibold text-text">{formatCurrency(entity.periodMetrics.gmv)}</p>
-                      <p className="text-xs text-text-muted">Attendi Net: {formatCurrency(entity.periodMetrics.attendiNet)}</p>
+                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted">GMV</p>
+                        <p className="text-sm font-semibold text-text">{formatCurrency(entity.periodMetrics.gmv)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted">Attendi</p>
+                        <p className="text-sm font-semibold text-text">{formatCurrency(entity.periodMetrics.attendiNet)}</p>
+                      </div>
                     </div>
                     <TrendBars values={entity.lastThreeMonthsGmv} />
                   </div>
@@ -386,24 +475,62 @@ export function BusinessPerformanceWorkspace({
         )}
       </Card>
 
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {selectedEntityDetail ? (
           <>
-            <Card className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-lg font-semibold text-text">{selectedEntityDetail.name}</h2>
-                  <p className="text-sm text-text-muted">
+            <Card className="min-w-0 space-y-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="truncate text-xl font-semibold text-text">{selectedEntityDetail.name}</h2>
+                  <p className="truncate text-sm text-text-muted">
                     {selectedEntityDetail.email ?? selectedEntityDetail.username ?? selectedEntityDetail.id}
                   </p>
+                  <p className="mt-1 font-mono text-xs text-text-muted">{compactId(selectedEntityDetail.id)}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <Badge color={selectedEntityDetail.entityType === "hotel" ? "warning" : "info"}>
                     {selectedEntityDetail.entityType}
                   </Badge>
+                  <StripeBadge entity={selectedEntityDetail} />
                   {selectedEntityDetail.assignedAgentName ? <Badge color="neutral">{selectedEntityDetail.assignedAgentName}</Badge> : null}
                 </div>
               </div>
+
+              <section className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+                <div className="rounded-xl border border-border bg-surface-muted p-4">
+                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+                    <CreditCard size={14} />
+                    Stripe
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-text">{compactId(selectedEntityDetail.stripeAccountId)}</p>
+                  <p className="mt-1 text-xs text-text-muted">{getStripeState(selectedEntityDetail).description}</p>
+                </div>
+                <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-border">
+                  <div className="border-r border-border bg-surface-muted p-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted">Charges</p>
+                    <p className={cn("mt-1 text-sm font-semibold", selectedEntityDetail.chargesEnabled ? "text-success" : "text-warning")}>
+                      {selectedEntityDetail.chargesEnabled ? "Enabled" : "Missing"}
+                    </p>
+                  </div>
+                  <div className="border-r border-border bg-surface-muted p-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted">Payouts</p>
+                    <p className={cn("mt-1 text-sm font-semibold", selectedEntityDetail.payoutsEnabled ? "text-success" : "text-warning")}>
+                      {selectedEntityDetail.payoutsEnabled ? "Enabled" : "Missing"}
+                    </p>
+                  </div>
+                  <div className="bg-surface-muted p-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted">Transfers</p>
+                    <p className={cn("mt-1 text-sm font-semibold", selectedEntityDetail.stripeTransfersEnabled ? "text-success" : "text-warning")}>
+                      {selectedEntityDetail.stripeTransfersEnabled ? "Enabled" : "Missing"}
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <StandardCommissionForm
+                entityId={selectedEntityDetail.id}
+                currentCommissionPct={selectedEntityDetail.standardOwnerCommissionPct}
+              />
 
               <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-xl border border-border bg-surface-muted p-3">
@@ -444,7 +571,7 @@ export function BusinessPerformanceWorkspace({
               </section>
             </Card>
 
-            <Card className="space-y-4">
+            <Card className="min-w-0 space-y-4">
               <h3 className="text-sm font-semibold text-text">Monthly series (last 12 months)</h3>
               <div className="overflow-x-auto">
                 <div className="flex min-w-[680px] items-end gap-2">
@@ -488,7 +615,7 @@ export function BusinessPerformanceWorkspace({
               </DataTable>
             </Card>
 
-            <Card className="space-y-4">
+            <Card className="min-w-0 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-text">Operations ledger</h3>
                 <div className="flex items-center gap-2">
@@ -566,7 +693,7 @@ export function BusinessPerformanceWorkspace({
               </div>
             </Card>
 
-            <Card className="space-y-2">
+            <Card className="min-w-0 space-y-2">
               <h3 className="text-sm font-semibold text-text">Entity location</h3>
               {selectedEntityDetail.latitude !== null && selectedEntityDetail.longitude !== null ? (
                 <div className="rounded-xl border border-border bg-surface-muted p-4">

@@ -32,6 +32,11 @@ interface RawEntityRow {
   username: string | null;
   profile_photo_url: string | null;
   account_type: BusinessEntityType;
+  stripe_account_id: string | null;
+  charges_enabled: boolean | null;
+  payouts_enabled: boolean | null;
+  stripe_transfers_enabled: boolean | null;
+  comision_propietario: number | string | null;
   latitude: number | null;
   longitude: number | null;
   precise_location: string | null;
@@ -138,6 +143,10 @@ function toOptionalText(value: unknown) {
 
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function toBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function chunkArray<T>(items: T[], size: number) {
@@ -895,7 +904,10 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
   const entityQuery = applyEntityFilters(
     supabase
       .from("profiles")
-      .select("id,full_name,username,profile_photo_url,account_type,latitude,longitude,precise_location", { count: "exact" })
+      .select(
+        "id,full_name,username,profile_photo_url,account_type,stripe_account_id,charges_enabled,payouts_enabled,stripe_transfers_enabled,comision_propietario,latitude,longitude,precise_location",
+        { count: "exact" }
+      )
       .order("created_at", { ascending: false })
       .range(0, Math.max(0, MAX_KPI_ENTITY_SCOPE - 1)),
     filters,
@@ -1020,6 +1032,11 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
       profilePhotoUrl: toOptionalText(entity.profile_photo_url),
       email: toOptionalText(emailMap.get(entity.id)) ?? toOptionalText(entity.username),
       entityType: entity.account_type,
+      stripeAccountId: toOptionalText(entity.stripe_account_id),
+      chargesEnabled: toBoolean(entity.charges_enabled, false),
+      payoutsEnabled: toBoolean(entity.payouts_enabled, false),
+      stripeTransfersEnabled: toBoolean(entity.stripe_transfers_enabled, false),
+      standardOwnerCommissionPct: Number(toNumber(entity.comision_propietario, 12.5).toFixed(2)),
       latitude: entity.latitude,
       longitude: entity.longitude,
       preciseLocation: toOptionalText(entity.precise_location),
@@ -1084,6 +1101,11 @@ export async function getBusinessPerformancePageData(input: QueryInput): Promise
       username: toOptionalText(selectedEntityRaw.username),
       email: toOptionalText(emailMap.get(selectedEntityId)) ?? toOptionalText(selectedEntityRaw.username),
       entityType: selectedEntityRaw.account_type,
+      stripeAccountId: toOptionalText(selectedEntityRaw.stripe_account_id),
+      chargesEnabled: toBoolean(selectedEntityRaw.charges_enabled, false),
+      payoutsEnabled: toBoolean(selectedEntityRaw.payouts_enabled, false),
+      stripeTransfersEnabled: toBoolean(selectedEntityRaw.stripe_transfers_enabled, false),
+      standardOwnerCommissionPct: Number(toNumber(selectedEntityRaw.comision_propietario, 12.5).toFixed(2)),
       latitude: selectedEntityRaw.latitude,
       longitude: selectedEntityRaw.longitude,
       preciseLocation: toOptionalText(selectedEntityRaw.precise_location),

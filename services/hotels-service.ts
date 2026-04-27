@@ -1,10 +1,11 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
+import { isMissingColumnError, isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import { isUUID } from "@/lib/utils";
 
 interface GetHotelsCommissionDirectoryInput {
   query?: string;
   selectedHotelId?: string;
+  selectedLocationId?: string;
 }
 
 interface HotelProfileRow {
@@ -14,6 +15,12 @@ interface HotelProfileRow {
   profile_photo_url: string | null;
   business_name: string | null;
   created_at: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  stripe_account_id: string | null;
+  charges_enabled: boolean | null;
+  payouts_enabled: boolean | null;
+  stripe_transfers_enabled: boolean | null;
 }
 
 interface HotelBusinessDetailRow {
@@ -21,26 +28,45 @@ interface HotelBusinessDetailRow {
   business_name: string | null;
   hotel_display_name: string | null;
   email: string | null;
+  precise_location: string | null;
+  city: string | null;
+  hotel_public_address: string | null;
+  hotel_public_email: string | null;
+  hotel_public_phone: string | null;
+  hotel_header_image_url: string | null;
+  hotel_brand_color: string | null;
+  hotel_recommended_filters: unknown;
+  hotel_show_own_catalog: boolean | null;
+  show_public_location: boolean | null;
+  show_public_email: boolean | null;
+}
+
+interface HotelLocationRow {
+  id: string;
+  owner_user_id: string;
+  display_name: string | null;
+  public_address: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  public_email: string | null;
+  public_phone: string | null;
+  header_image_url: string | null;
+  brand_color: string | null;
+  show_public_location: boolean | null;
+  show_public_email: boolean | null;
+  recommended_filters: unknown;
+  show_own_catalog: boolean | null;
+  is_primary: boolean | null;
+  active: boolean | null;
+  sort_order: number | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 interface HotelSplitSettingRow {
   hotel_id: string;
-  k_hotel: number | null;
-}
-
-interface RpcHotelPartnerCountRow {
-  hotel_id: string;
-  partners_count: number | string | null;
-}
-
-interface RpcHotelPartnerRow {
-  company_id: string;
-  company_name: string | null;
-  company_email: string | null;
-  ce_p_standard_pct: number | string | null;
-  ce_p_effective_pct: number | string | null;
-  ce_p_override_pct: number | string | null;
-  has_custom_ce_p: boolean | null;
+  hotel_location_id: string | null;
+  k_hotel: number | string | null;
 }
 
 interface LegacyPartnerLinkRow {
@@ -53,18 +79,36 @@ interface LegacyPartnerProfileRow {
   username: string | null;
   business_name: string | null;
   account_type: string | null;
-  comision_propietario: number | null;
+  comision_propietario: number | string | null;
 }
 
 interface LegacyPartnerBusinessRow {
   user_id: string;
   business_name: string | null;
   email: string | null;
+  company_type: string | null;
 }
 
 interface LegacyOverrideRow {
+  id: number;
   company_id: string;
-  ce_p_pct: number | null;
+  ce_p_pct: number | string | null;
+  k_hotel: number | string | null;
+  hotel_location_id: string | null;
+}
+
+interface ProductPartnerCandidateRow {
+  user_id: string | null;
+  category: string | null;
+  location_lat: number | string | null;
+  location_lng: number | string | null;
+}
+
+interface RecommendedFilters {
+  max_distance_km: number;
+  excluded_company_ids: Set<string>;
+  categories: Set<string>;
+  company_types: Set<string>;
 }
 
 export interface HotelDirectoryRow {
@@ -73,10 +117,41 @@ export interface HotelDirectoryRow {
   email: string | null;
   username: string | null;
   profile_photo_url: string | null;
+  created_at: string | null;
+  stripe_account_id: string | null;
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  stripe_transfers_enabled: boolean;
+  locations_count: number;
+  active_locations_count: number;
+  primary_location_name: string | null;
   k_hotel: number;
   k_hotel_pct: number;
-  partners_count: number;
+}
+
+export interface HotelLocationSummary {
+  id: string | null;
+  location_key: string;
+  owner_user_id: string;
+  name: string;
+  address: string | null;
+  public_email: string | null;
+  public_phone: string | null;
+  header_image_url: string | null;
+  brand_color: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  show_public_location: boolean;
+  show_public_email: boolean;
+  show_own_catalog: boolean;
+  is_primary: boolean;
+  active: boolean;
+  sort_order: number;
   created_at: string | null;
+  updated_at: string | null;
+  recommended_filters: unknown;
+  k_hotel: number;
+  k_hotel_pct: number;
 }
 
 export interface HotelPartnerCommissionDetailRow {
@@ -87,25 +162,98 @@ export interface HotelPartnerCommissionDetailRow {
   ce_p_effective_pct: number;
   ce_p_override_pct: number | null;
   has_custom_ce_p: boolean;
+  k_hotel: number;
+  k_hotel_pct: number;
+  has_custom_k_hotel: boolean;
+  visible_products_count: number | null;
 }
 
-export interface HotelDirectoryDetail extends HotelDirectoryRow {
+export interface HotelLocationDetail extends HotelLocationSummary {
   standard_ce_p_pct: number;
   standard_hotel_pct: number;
   standard_attendi_pct: number;
   partners: HotelPartnerCommissionDetailRow[];
 }
 
+export interface HotelDirectoryDetail extends HotelDirectoryRow {
+  locations: HotelLocationSummary[];
+  selectedLocation: HotelLocationDetail | null;
+}
+
 export interface HotelsCommissionDirectoryData {
   query: string;
   hotels: HotelDirectoryRow[];
   selectedHotelId: string | null;
+  selectedLocationId: string | null;
   selectedHotel: HotelDirectoryDetail | null;
   default_standard_commission_pct: number;
+  totals: {
+    hotel_accounts: number;
+    hotel_locations: number;
+    active_locations: number;
+    connected_stripe_accounts: number;
+  };
 }
 
 const DEFAULT_K_HOTEL = 0.4;
 const DEFAULT_STANDARD_COMMISSION_PCT = 12.5;
+const DEFAULT_MAX_DISTANCE_KM = 50;
+const FALLBACK_LOCATION_KEY = "profile";
+
+const HOTEL_PROFILE_SELECT = [
+  "id",
+  "full_name",
+  "username",
+  "profile_photo_url",
+  "business_name",
+  "created_at",
+  "latitude",
+  "longitude",
+  "stripe_account_id",
+  "charges_enabled",
+  "payouts_enabled",
+  "stripe_transfers_enabled"
+].join(",");
+
+const HOTEL_BUSINESS_SELECT = [
+  "user_id",
+  "business_name",
+  "hotel_display_name",
+  "email",
+  "precise_location",
+  "city",
+  "hotel_public_address",
+  "hotel_public_email",
+  "hotel_public_phone",
+  "hotel_header_image_url",
+  "hotel_brand_color",
+  "hotel_recommended_filters",
+  "hotel_show_own_catalog",
+  "show_public_location",
+  "show_public_email"
+].join(",");
+
+const HOTEL_LOCATION_SELECT = [
+  "id",
+  "owner_user_id",
+  "display_name",
+  "public_address",
+  "latitude",
+  "longitude",
+  "public_email",
+  "public_phone",
+  "header_image_url",
+  "brand_color",
+  "show_public_location",
+  "show_public_email",
+  "recommended_filters",
+  "show_own_catalog",
+  "is_primary",
+  "active",
+  "sort_order",
+  "created_at",
+  "updated_at"
+].join(",");
 
 function sanitizeSearchQuery(value: string) {
   return value.replace(/[,()]/g, " ").trim();
@@ -120,9 +268,18 @@ function toOptionalText(value: unknown) {
   return trimmed.length ? trimmed : null;
 }
 
+function toBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 function toNumber(value: unknown, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function toNullableNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function normalizePercentage(value: unknown, fallback = 0) {
@@ -141,13 +298,51 @@ function isRecoverableReadError(error: { code?: string; message?: string } | nul
   return isMissingDatabaseObject(error as never) || isPermissionError(error as never);
 }
 
-function isMissingRpcFunctionError(error: { code?: string; message?: string } | null) {
-  if (!error) {
-    return false;
+function getLocationKey(locationId: string | null | undefined) {
+  return toOptionalText(locationId) ?? FALLBACK_LOCATION_KEY;
+}
+
+function getLocationIdFromKey(locationKey: string | null | undefined) {
+  const normalized = toOptionalText(locationKey);
+  return normalized && normalized !== FALLBACK_LOCATION_KEY ? normalized : null;
+}
+
+function dedupe(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function getJsonObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
   }
 
-  const message = error.message ?? "";
-  return error.code === "PGRST202" || /could not find.*function|function .* does not exist/i.test(message);
+  return value as Record<string, unknown>;
+}
+
+function getStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => toOptionalText(entry)).filter((entry): entry is string => Boolean(entry));
+  }
+
+  const scalar = toOptionalText(value);
+  return scalar ? [scalar] : [];
+}
+
+function getStringSetFromObject(source: Record<string, unknown>, keys: string[]) {
+  const values = keys.flatMap((key) => getStringArray(source[key]));
+  return new Set(values.map((value) => value.trim()).filter(Boolean));
+}
+
+function parseRecommendedFilters(value: unknown): RecommendedFilters {
+  const source = getJsonObject(value);
+  const maxDistance = toNumber(source.max_distance_km ?? source.maxDistanceKm, DEFAULT_MAX_DISTANCE_KM);
+
+  return {
+    max_distance_km: Math.max(0, maxDistance),
+    excluded_company_ids: getStringSetFromObject(source, ["excluded_company_ids", "excludedCompanyIds"]),
+    categories: getStringSetFromObject(source, ["categories", "category_names", "categoryNames", "allowed_categories", "allowedCategories"]),
+    company_types: getStringSetFromObject(source, ["company_types", "companyTypes", "allowed_company_types", "allowedCompanyTypes"])
+  };
 }
 
 function resolveHotelName(profile: HotelProfileRow, businessDetails: HotelBusinessDetailRow | null) {
@@ -175,6 +370,23 @@ function resolveCompanyName(
   );
 }
 
+function resolveFallbackLocationName(profile: HotelProfileRow, business: HotelBusinessDetailRow | null) {
+  return (
+    toOptionalText(business?.hotel_display_name) ??
+    toOptionalText(business?.business_name) ??
+    toOptionalText(profile.business_name) ??
+    "Perfil principal"
+  );
+}
+
+function resolveLocationAddress(business: HotelBusinessDetailRow | null) {
+  return (
+    toOptionalText(business?.hotel_public_address) ??
+    toOptionalText(business?.precise_location) ??
+    toOptionalText(business?.city)
+  );
+}
+
 function sortPartners(rows: HotelPartnerCommissionDetailRow[]) {
   return [...rows].sort((left, right) => {
     const customDelta = Number(right.has_custom_ce_p) - Number(left.has_custom_ce_p);
@@ -186,44 +398,383 @@ function sortPartners(rows: HotelPartnerCommissionDetailRow[]) {
   });
 }
 
-async function getLegacyPartnerCountsByHotelId(hotelIds: string[]) {
-  if (!hotelIds.length) {
-    return new Map<string, number>();
-  }
+function sortLocations(rows: HotelLocationSummary[]) {
+  return [...rows].sort((left, right) => {
+    const primaryDelta = Number(right.is_primary) - Number(left.is_primary);
+    if (primaryDelta !== 0) {
+      return primaryDelta;
+    }
 
+    const activeDelta = Number(right.active) - Number(left.active);
+    if (activeDelta !== 0) {
+      return activeDelta;
+    }
+
+    const orderDelta = left.sort_order - right.sort_order;
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function getDistanceKm(latA: number, lngA: number, latB: number, lngB: number) {
+  const earthRadiusKm = 6371;
+  const dLat = ((latB - latA) * Math.PI) / 180;
+  const dLng = ((lngB - lngA) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((latA * Math.PI) / 180) *
+      Math.cos((latB * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getBounds(latitude: number, longitude: number, maxDistanceKm: number) {
+  const latDelta = maxDistanceKm / 111;
+  const lngDelta = maxDistanceKm / (111 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.01));
+
+  return {
+    minLat: latitude - latDelta,
+    maxLat: latitude + latDelta,
+    minLng: longitude - lngDelta,
+    maxLng: longitude + lngDelta
+  };
+}
+
+function getKHotelForLocation(
+  hotelId: string,
+  locationId: string | null,
+  splitRows: HotelSplitSettingRow[],
+  globalKHotel: number
+) {
+  const locationSpecific = locationId
+    ? splitRows.find((row) => row.hotel_id === hotelId && row.hotel_location_id === locationId)
+    : null;
+
+  const accountLevel = splitRows.find((row) => row.hotel_id === hotelId && !row.hotel_location_id);
+  return normalizeK(locationSpecific?.k_hotel ?? accountLevel?.k_hotel, globalKHotel);
+}
+
+function chooseOverride(
+  overrides: LegacyOverrideRow[],
+  companyId: string,
+  locationId: string | null
+) {
+  const companyOverrides = overrides.filter((row) => row.company_id === companyId);
+
+  return (
+    (locationId ? companyOverrides.find((row) => row.hotel_location_id === locationId) : undefined) ??
+    companyOverrides.find((row) => !row.hotel_location_id) ??
+    companyOverrides[0] ??
+    null
+  );
+}
+
+async function getMatchingLocationOwnerIds(token: string) {
   const supabase = createSupabaseServerClient();
 
-  const { data, error } = await supabase
-    .from("hotel_company_partners")
-    .select("hotel_user_id,company_user_id")
-    .eq("is_partner", true)
-    .in("hotel_user_id", hotelIds);
+  const query = isUUID(token)
+    ? supabase.from("hotel_locations").select("owner_user_id").eq("id", token)
+    : supabase
+        .from("hotel_locations")
+        .select("owner_user_id")
+        .or(`display_name.ilike.%${token}%,public_address.ilike.%${token}%,public_email.ilike.%${token}%,public_phone.ilike.%${token}%`);
+
+  const { data, error } = await query;
 
   if (error) {
     if (isRecoverableReadError(error)) {
-      return new Map<string, number>();
+      return [];
     }
 
     throw new Error(error.message);
   }
 
-  const pairs = (data ?? []) as Array<{ hotel_user_id: string; company_user_id: string }>;
-  const uniqueCompaniesByHotel = new Map<string, Set<string>>();
+  return dedupe((data ?? []).map((row) => (row as { owner_user_id?: string }).owner_user_id));
+}
 
-  pairs.forEach((row) => {
-    if (!row.hotel_user_id || !row.company_user_id) {
+async function getMatchingBusinessHotelIds(token: string) {
+  const supabase = createSupabaseServerClient();
+
+  const query = isUUID(token)
+    ? supabase.from("business_details").select("user_id").eq("user_id", token)
+    : supabase
+        .from("business_details")
+        .select("user_id")
+        .or(`business_name.ilike.%${token}%,hotel_display_name.ilike.%${token}%,email.ilike.%${token}%,hotel_public_address.ilike.%${token}%`);
+
+  const { data, error } = await query;
+
+  if (error) {
+    if (isRecoverableReadError(error)) {
+      return [];
+    }
+
+    throw new Error(error.message);
+  }
+
+  return dedupe((data ?? []).map((row) => (row as { user_id?: string }).user_id));
+}
+
+async function fetchHotelProfiles(normalizedQuery: string) {
+  const supabase = createSupabaseServerClient();
+  const token = sanitizeSearchQuery(normalizedQuery);
+
+  if (!token) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(HOTEL_PROFILE_SELECT)
+      .eq("account_type", "hotel")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as unknown as HotelProfileRow[];
+  }
+
+  const [locationOwnerIds, businessHotelIds] = await Promise.all([
+    getMatchingLocationOwnerIds(token),
+    getMatchingBusinessHotelIds(token)
+  ]);
+
+  const directIds = isUUID(token) ? [token] : [];
+  const matchingIds = dedupe([...directIds, ...locationOwnerIds, ...businessHotelIds]);
+
+  if (isUUID(token)) {
+    if (!matchingIds.length) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(HOTEL_PROFILE_SELECT)
+      .eq("account_type", "hotel")
+      .in("id", matchingIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as unknown as HotelProfileRow[];
+  }
+
+  const { data: profileMatches, error: profileMatchesError } = await supabase
+    .from("profiles")
+    .select(HOTEL_PROFILE_SELECT)
+    .eq("account_type", "hotel")
+    .or(`full_name.ilike.%${token}%,username.ilike.%${token}%,business_name.ilike.%${token}%`);
+
+  if (profileMatchesError) {
+    throw new Error(profileMatchesError.message);
+  }
+
+  let idMatches: HotelProfileRow[] = [];
+
+  if (matchingIds.length) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(HOTEL_PROFILE_SELECT)
+      .eq("account_type", "hotel")
+      .in("id", matchingIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    idMatches = (data ?? []) as unknown as HotelProfileRow[];
+  }
+
+  return Array.from(
+    new Map([...(profileMatches ?? []), ...idMatches].map((row) => [(row as HotelProfileRow).id, row as HotelProfileRow])).values()
+  );
+}
+
+function createFallbackLocation(
+  profile: HotelProfileRow,
+  business: HotelBusinessDetailRow | null,
+  kHotel: number
+): HotelLocationSummary {
+  return {
+    id: null,
+    location_key: FALLBACK_LOCATION_KEY,
+    owner_user_id: profile.id,
+    name: resolveFallbackLocationName(profile, business),
+    address: resolveLocationAddress(business),
+    public_email: toOptionalText(business?.hotel_public_email) ?? toOptionalText(business?.email),
+    public_phone: toOptionalText(business?.hotel_public_phone),
+    header_image_url: toOptionalText(business?.hotel_header_image_url) ?? toOptionalText(profile.profile_photo_url),
+    brand_color: toOptionalText(business?.hotel_brand_color),
+    latitude: toNullableNumber(profile.latitude),
+    longitude: toNullableNumber(profile.longitude),
+    show_public_location: toBoolean(business?.show_public_location, true),
+    show_public_email: toBoolean(business?.show_public_email, false),
+    show_own_catalog: toBoolean(business?.hotel_show_own_catalog, false),
+    is_primary: true,
+    active: true,
+    sort_order: 0,
+    created_at: profile.created_at,
+    updated_at: null,
+    recommended_filters: business?.hotel_recommended_filters ?? {},
+    k_hotel: roundTwo(kHotel),
+    k_hotel_pct: roundTwo(kHotel * 100)
+  };
+}
+
+function createLocationSummary(
+  row: HotelLocationRow,
+  profile: HotelProfileRow,
+  business: HotelBusinessDetailRow | null,
+  kHotel: number
+): HotelLocationSummary {
+  const name =
+    toOptionalText(row.display_name) ??
+    toOptionalText(business?.hotel_display_name) ??
+    toOptionalText(business?.business_name) ??
+    toOptionalText(profile.business_name) ??
+    "Localización";
+
+  return {
+    id: row.id,
+    location_key: getLocationKey(row.id),
+    owner_user_id: row.owner_user_id,
+    name,
+    address: toOptionalText(row.public_address) ?? resolveLocationAddress(business),
+    public_email: toOptionalText(row.public_email) ?? toOptionalText(business?.hotel_public_email) ?? toOptionalText(business?.email),
+    public_phone: toOptionalText(row.public_phone) ?? toOptionalText(business?.hotel_public_phone),
+    header_image_url: toOptionalText(row.header_image_url) ?? toOptionalText(business?.hotel_header_image_url) ?? toOptionalText(profile.profile_photo_url),
+    brand_color: toOptionalText(row.brand_color) ?? toOptionalText(business?.hotel_brand_color),
+    latitude: toNullableNumber(row.latitude) ?? toNullableNumber(profile.latitude),
+    longitude: toNullableNumber(row.longitude) ?? toNullableNumber(profile.longitude),
+    show_public_location: toBoolean(row.show_public_location, true),
+    show_public_email: toBoolean(row.show_public_email, false),
+    show_own_catalog: toBoolean(row.show_own_catalog, false),
+    is_primary: toBoolean(row.is_primary, false),
+    active: toBoolean(row.active, true),
+    sort_order: Math.trunc(toNumber(row.sort_order, 0)),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    recommended_filters: row.recommended_filters ?? business?.hotel_recommended_filters ?? {},
+    k_hotel: roundTwo(kHotel),
+    k_hotel_pct: roundTwo(kHotel * 100)
+  };
+}
+
+async function getCompanyRowsForPartners(
+  hotelId: string,
+  locationId: string | null,
+  companyIds: string[],
+  visibleProductCounts: Map<string, number>,
+  allowedCompanyTypes: Set<string>,
+  defaultKHotel: number
+) {
+  if (!companyIds.length) {
+    return [];
+  }
+
+  const supabase = createSupabaseServerClient();
+
+  const [profilesResult, businessResult, overridesResult] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id,full_name,username,business_name,account_type,comision_propietario")
+      .in("id", companyIds),
+    supabase
+      .from("business_details")
+      .select("user_id,business_name,email,company_type")
+      .in("user_id", companyIds),
+    supabase
+      .from("hotel_company_commission_overrides")
+      .select("id,company_id,ce_p_pct,k_hotel,hotel_location_id")
+      .eq("hotel_id", hotelId)
+      .eq("active", true)
+      .in("company_id", companyIds)
+  ]);
+
+  if (profilesResult.error && !isRecoverableReadError(profilesResult.error)) {
+    throw new Error(profilesResult.error.message);
+  }
+
+  if (businessResult.error && !isRecoverableReadError(businessResult.error)) {
+    throw new Error(businessResult.error.message);
+  }
+
+  let overridesData: unknown[] | null = overridesResult.data as unknown[] | null;
+  if (isMissingColumnError(overridesResult.error)) {
+    const fallbackOverridesResult = await supabase
+      .from("hotel_company_commission_overrides")
+      .select("id,company_id,ce_p_pct,hotel_location_id")
+      .eq("hotel_id", hotelId)
+      .eq("active", true)
+      .in("company_id", companyIds);
+
+    if (fallbackOverridesResult.error && !isRecoverableReadError(fallbackOverridesResult.error)) {
+      throw new Error(fallbackOverridesResult.error.message);
+    }
+
+    overridesData = fallbackOverridesResult.data as unknown[] | null;
+  } else if (overridesResult.error && !isRecoverableReadError(overridesResult.error)) {
+    throw new Error(overridesResult.error.message);
+  }
+
+  const profiles = (profilesResult.data ?? []) as LegacyPartnerProfileRow[];
+  const businesses = (businessResult.data ?? []) as LegacyPartnerBusinessRow[];
+  const overrides = (overridesData ?? []) as LegacyOverrideRow[];
+
+  const profileById = new Map(profiles.map((row) => [row.id, row]));
+  const businessById = new Map(businesses.map((row) => [row.user_id, row]));
+  const rows: HotelPartnerCommissionDetailRow[] = [];
+
+  companyIds.forEach((companyId) => {
+    const profile = profileById.get(companyId);
+
+    if (toOptionalText(profile?.account_type) !== "business") {
       return;
     }
 
-    const current = uniqueCompaniesByHotel.get(row.hotel_user_id) ?? new Set<string>();
-    current.add(row.company_user_id);
-    uniqueCompaniesByHotel.set(row.hotel_user_id, current);
+    const business = businessById.get(companyId) ?? null;
+    const companyType = toOptionalText(business?.company_type);
+
+    if (allowedCompanyTypes.size && (!companyType || !allowedCompanyTypes.has(companyType))) {
+      return;
+    }
+
+    const standard = normalizePercentage(profile?.comision_propietario, DEFAULT_STANDARD_COMMISSION_PCT);
+    const override = chooseOverride(overrides, companyId, locationId);
+    const overridePct = override ? normalizePercentage(override.ce_p_pct, standard) : null;
+    const overrideKHotel = override?.k_hotel === null || override?.k_hotel === undefined
+      ? null
+      : normalizeK(override.k_hotel, defaultKHotel);
+    const kHotel = overrideKHotel ?? defaultKHotel;
+
+    rows.push({
+      company_id: companyId,
+      company_name: resolveCompanyName(profile, business, companyId),
+      company_email: toOptionalText(business?.email) ?? toOptionalText(profile?.username),
+      ce_p_standard_pct: roundTwo(standard),
+      ce_p_effective_pct: roundTwo(overridePct ?? standard),
+      ce_p_override_pct: overridePct === null ? null : roundTwo(overridePct),
+      has_custom_ce_p: overridePct !== null,
+      k_hotel: roundTwo(kHotel),
+      k_hotel_pct: roundTwo(kHotel * 100),
+      has_custom_k_hotel: overrideKHotel !== null,
+      visible_products_count: visibleProductCounts.get(companyId) ?? null
+    });
   });
 
-  return new Map(Array.from(uniqueCompaniesByHotel.entries()).map(([hotelId, companies]) => [hotelId, companies.size]));
+  return sortPartners(rows);
 }
 
-async function getLegacyPartnersForHotel(hotelId: string): Promise<HotelPartnerCommissionDetailRow[]> {
+async function getLegacyPartnersForHotel(
+  hotelId: string,
+  locationId: string | null,
+  defaultKHotel: number
+): Promise<HotelPartnerCommissionDetailRow[]> {
   const supabase = createSupabaseServerClient();
 
   const { data: linksData, error: linksError } = await supabase
@@ -240,131 +791,113 @@ async function getLegacyPartnersForHotel(hotelId: string): Promise<HotelPartnerC
     throw new Error(linksError.message);
   }
 
-  const linkRows = (linksData ?? []) as LegacyPartnerLinkRow[];
-  const companyIds = Array.from(
-    new Set(
-      linkRows
-        .map((row) => row.company_user_id)
-        .filter((value): value is string => Boolean(value))
-    )
-  );
+  const companyIds = dedupe(((linksData ?? []) as LegacyPartnerLinkRow[]).map((row) => row.company_user_id));
+  return getCompanyRowsForPartners(hotelId, locationId, companyIds, new Map(), new Set(), defaultKHotel);
+}
 
-  if (!companyIds.length) {
-    return [];
+async function getPartnersForLocation(
+  hotelId: string,
+  location: HotelLocationSummary
+): Promise<HotelPartnerCommissionDetailRow[]> {
+  const locationId = getLocationIdFromKey(location.location_key);
+  const filters = parseRecommendedFilters(location.recommended_filters);
+
+  if (location.latitude === null || location.longitude === null) {
+    return getLegacyPartnersForHotel(hotelId, locationId, location.k_hotel);
   }
 
-  const [profilesResult, businessResult, overridesResult] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id,full_name,username,business_name,account_type,comision_propietario")
-      .in("id", companyIds),
-    supabase
-      .from("business_details")
-      .select("user_id,business_name,email")
-      .in("user_id", companyIds),
-    supabase
-      .from("hotel_company_commission_overrides")
-      .select("company_id,ce_p_pct")
-      .eq("hotel_id", hotelId)
-      .eq("active", true)
-      .in("company_id", companyIds)
-  ]);
+  const supabase = createSupabaseServerClient();
+  const bounds = getBounds(location.latitude, location.longitude, filters.max_distance_km);
+  let statement = supabase
+    .from("products")
+    .select("user_id,category,location_lat,location_lng")
+    .eq("is_hidden", false)
+    .is("deleted_at", null)
+    .not("user_id", "is", null)
+    .not("location_lat", "is", null)
+    .not("location_lng", "is", null)
+    .neq("user_id", hotelId)
+    .gte("location_lat", bounds.minLat)
+    .lte("location_lat", bounds.maxLat)
+    .gte("location_lng", bounds.minLng)
+    .lte("location_lng", bounds.maxLng)
+    .limit(5000);
 
-  if (profilesResult.error && !isRecoverableReadError(profilesResult.error)) {
-    throw new Error(profilesResult.error.message);
+  if (filters.categories.size) {
+    statement = statement.in("category", Array.from(filters.categories));
   }
 
-  if (businessResult.error && !isRecoverableReadError(businessResult.error)) {
-    throw new Error(businessResult.error.message);
+  const { data, error } = await statement;
+
+  if (error) {
+    if (isRecoverableReadError(error)) {
+      return getLegacyPartnersForHotel(hotelId, locationId, location.k_hotel);
+    }
+
+    throw new Error(error.message);
   }
 
-  if (overridesResult.error && !isRecoverableReadError(overridesResult.error)) {
-    throw new Error(overridesResult.error.message);
-  }
+  const visibleProductCounts = new Map<string, number>();
 
-  const profiles = (profilesResult.data ?? []) as LegacyPartnerProfileRow[];
-  const businesses = (businessResult.data ?? []) as LegacyPartnerBusinessRow[];
-  const overrides = (overridesResult.data ?? []) as LegacyOverrideRow[];
+  ((data ?? []) as ProductPartnerCandidateRow[]).forEach((row) => {
+    const companyId = toOptionalText(row.user_id);
+    const productLat = toNullableNumber(row.location_lat);
+    const productLng = toNullableNumber(row.location_lng);
 
-  const profileById = new Map(profiles.map((row) => [row.id, row]));
-  const businessById = new Map(businesses.map((row) => [row.user_id, row]));
-  const overrideByCompanyId = new Map(overrides.map((row) => [row.company_id, normalizePercentage(row.ce_p_pct, DEFAULT_STANDARD_COMMISSION_PCT)]));
-
-  const rows: HotelPartnerCommissionDetailRow[] = [];
-
-  companyIds.forEach((companyId) => {
-    const profile = profileById.get(companyId);
-
-    if (toOptionalText(profile?.account_type) !== "business") {
+    if (!companyId || productLat === null || productLng === null || filters.excluded_company_ids.has(companyId)) {
       return;
     }
 
-    const business = businessById.get(companyId) ?? null;
-    const standard = normalizePercentage(profile?.comision_propietario, DEFAULT_STANDARD_COMMISSION_PCT);
-    const override = overrideByCompanyId.get(companyId);
+    if (getDistanceKm(location.latitude as number, location.longitude as number, productLat, productLng) > filters.max_distance_km) {
+      return;
+    }
 
-    rows.push({
-      company_id: companyId,
-      company_name: resolveCompanyName(profile, business, companyId),
-      company_email: toOptionalText(business?.email) ?? toOptionalText(profile?.username),
-      ce_p_standard_pct: roundTwo(standard),
-      ce_p_effective_pct: roundTwo(override ?? standard),
-      ce_p_override_pct: override === undefined ? null : roundTwo(override),
-      has_custom_ce_p: override !== undefined
-    });
+    visibleProductCounts.set(companyId, (visibleProductCounts.get(companyId) ?? 0) + 1);
   });
 
-  return sortPartners(rows);
+  return getCompanyRowsForPartners(
+    hotelId,
+    locationId,
+    Array.from(visibleProductCounts.keys()),
+    visibleProductCounts,
+    filters.company_types,
+    location.k_hotel
+  );
 }
 
 export async function getHotelsCommissionDirectory({
   query,
-  selectedHotelId
+  selectedHotelId,
+  selectedLocationId
 }: GetHotelsCommissionDirectoryInput): Promise<HotelsCommissionDirectoryData> {
   const supabase = createSupabaseServerClient();
   const normalizedQuery = toOptionalText(query) ?? "";
-
-  let hotelsStatement = supabase
-    .from("profiles")
-    .select("id,full_name,username,profile_photo_url,business_name,created_at")
-    .eq("account_type", "hotel")
-    .order("created_at", { ascending: false });
-
-  if (normalizedQuery) {
-    const token = sanitizeSearchQuery(normalizedQuery);
-
-    if (isUUID(token)) {
-      hotelsStatement = hotelsStatement.eq("id", token);
-    } else {
-      hotelsStatement = hotelsStatement.or(`full_name.ilike.%${token}%,username.ilike.%${token}%,business_name.ilike.%${token}%`);
-    }
-  }
-
-  const { data: hotelProfilesResult, error: hotelProfilesError } = await hotelsStatement;
-
-  if (hotelProfilesError) {
-    throw new Error(hotelProfilesError.message);
-  }
-
-  const hotelProfiles = (hotelProfilesResult ?? []) as HotelProfileRow[];
+  const hotelProfiles = await fetchHotelProfiles(normalizedQuery);
 
   if (!hotelProfiles.length) {
     return {
       query: normalizedQuery,
       hotels: [],
       selectedHotelId: null,
+      selectedLocationId: null,
       selectedHotel: null,
-      default_standard_commission_pct: DEFAULT_STANDARD_COMMISSION_PCT
+      default_standard_commission_pct: DEFAULT_STANDARD_COMMISSION_PCT,
+      totals: {
+        hotel_accounts: 0,
+        hotel_locations: 0,
+        active_locations: 0,
+        connected_stripe_accounts: 0
+      }
     };
   }
 
   const hotelIds = hotelProfiles.map((row) => row.id);
 
-  const [platformSettingsResult, hotelBusinessResult, splitSettingsResult, partnerCountsResult] = await Promise.all([
+  const [platformSettingsResult, hotelBusinessResult, splitSettingsResult, locationsResult] = await Promise.all([
     supabase.from("platform_commission_settings").select("k_hotel").eq("id", 1).maybeSingle(),
-    supabase.from("business_details").select("user_id,business_name,hotel_display_name,email").in("user_id", hotelIds),
-    supabase.from("hotel_commission_split_settings").select("hotel_id,k_hotel").in("hotel_id", hotelIds),
-    supabase.rpc("get_hotels_partner_counts", { p_hotel_ids: hotelIds })
+    supabase.from("business_details").select(HOTEL_BUSINESS_SELECT).in("user_id", hotelIds),
+    supabase.from("hotel_commission_split_settings").select("hotel_id,hotel_location_id,k_hotel").in("hotel_id", hotelIds),
+    supabase.from("hotel_locations").select(HOTEL_LOCATION_SELECT).in("owner_user_id", hotelIds)
   ]);
 
   if (platformSettingsResult.error && !isRecoverableReadError(platformSettingsResult.error)) {
@@ -379,43 +912,50 @@ export async function getHotelsCommissionDirectory({
     throw new Error(splitSettingsResult.error.message);
   }
 
-  const shouldFallbackPartnerCounts = Boolean(
-    partnerCountsResult.error && (isRecoverableReadError(partnerCountsResult.error) || isMissingRpcFunctionError(partnerCountsResult.error))
-  );
-
-  if (partnerCountsResult.error && !shouldFallbackPartnerCounts) {
-    throw new Error(partnerCountsResult.error.message);
+  if (locationsResult.error && !isRecoverableReadError(locationsResult.error)) {
+    throw new Error(locationsResult.error.message);
   }
 
   const globalKHotel = normalizeK(
-    (platformSettingsResult.data as { k_hotel?: number | null } | null)?.k_hotel,
+    (platformSettingsResult.data as { k_hotel?: number | string | null } | null)?.k_hotel,
     DEFAULT_K_HOTEL
   );
 
-  const hotelBusinessRows = (hotelBusinessResult.data ?? []) as HotelBusinessDetailRow[];
-  const splitSettingRows = (splitSettingsResult.data ?? []) as HotelSplitSettingRow[];
-  const partnerCountRows = ((partnerCountsResult.data ?? []) as RpcHotelPartnerCountRow[]);
-
+  const hotelBusinessRows = (hotelBusinessResult.data ?? []) as unknown as HotelBusinessDetailRow[];
+  const splitRows = (splitSettingsResult.data ?? []) as unknown as HotelSplitSettingRow[];
+  const locationRows = (locationsResult.data ?? []) as unknown as HotelLocationRow[];
   const hotelBusinessById = new Map(hotelBusinessRows.map((row) => [row.user_id, row]));
-  const splitByHotelId = new Map(splitSettingRows.map((row) => [row.hotel_id, normalizeK(row.k_hotel, globalKHotel)]));
+  const locationRowsByHotelId = new Map<string, HotelLocationRow[]>();
 
-  const partnerCountsByHotelId = new Map(
-    partnerCountRows
-      .filter((row): row is RpcHotelPartnerCountRow => Boolean(row.hotel_id))
-      .map((row) => [row.hotel_id, Math.max(0, Math.trunc(toNumber(row.partners_count, 0)))])
-  );
+  locationRows.forEach((row) => {
+    const current = locationRowsByHotelId.get(row.owner_user_id) ?? [];
+    current.push(row);
+    locationRowsByHotelId.set(row.owner_user_id, current);
+  });
 
-  if (shouldFallbackPartnerCounts) {
-    const legacyCounts = await getLegacyPartnerCountsByHotelId(hotelIds);
-    legacyCounts.forEach((value, key) => {
-      partnerCountsByHotelId.set(key, value);
-    });
-  }
+  const locationsByHotelId = new Map<string, HotelLocationSummary[]>();
+
+  hotelProfiles.forEach((profile) => {
+    const business = hotelBusinessById.get(profile.id) ?? null;
+    const rows = locationRowsByHotelId.get(profile.id) ?? [];
+    const locations = rows.length
+      ? rows.map((row) => createLocationSummary(
+          row,
+          profile,
+          business,
+          getKHotelForLocation(profile.id, row.id, splitRows, globalKHotel)
+        ))
+      : [createFallbackLocation(profile, business, getKHotelForLocation(profile.id, null, splitRows, globalKHotel))];
+
+    locationsByHotelId.set(profile.id, sortLocations(locations));
+  });
 
   const hotels: HotelDirectoryRow[] = hotelProfiles
     .map((profile) => {
       const business = hotelBusinessById.get(profile.id) ?? null;
-      const kHotel = splitByHotelId.get(profile.id) ?? globalKHotel;
+      const locations = locationsByHotelId.get(profile.id) ?? [];
+      const primaryLocation = locations.find((location) => location.is_primary) ?? locations[0] ?? null;
+      const activeLocationsCount = locations.filter((location) => location.active).length;
 
       return {
         id: profile.id,
@@ -423,10 +963,16 @@ export async function getHotelsCommissionDirectory({
         email: toOptionalText(business?.email) ?? toOptionalText(profile.username),
         username: toOptionalText(profile.username),
         profile_photo_url: toOptionalText(profile.profile_photo_url),
-        k_hotel: roundTwo(kHotel),
-        k_hotel_pct: roundTwo(kHotel * 100),
-        partners_count: partnerCountsByHotelId.get(profile.id) ?? 0,
-        created_at: profile.created_at
+        created_at: profile.created_at,
+        stripe_account_id: toOptionalText(profile.stripe_account_id),
+        charges_enabled: toBoolean(profile.charges_enabled, false),
+        payouts_enabled: toBoolean(profile.payouts_enabled, false),
+        stripe_transfers_enabled: toBoolean(profile.stripe_transfers_enabled, false),
+        locations_count: locations.length,
+        active_locations_count: activeLocationsCount,
+        primary_location_name: primaryLocation?.name ?? null,
+        k_hotel: primaryLocation?.k_hotel ?? roundTwo(globalKHotel),
+        k_hotel_pct: primaryLocation?.k_hotel_pct ?? roundTwo(globalKHotel * 100)
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -436,66 +982,58 @@ export async function getHotelsCommissionDirectory({
     : hotels[0]?.id ?? null;
 
   let selectedHotel: HotelDirectoryDetail | null = null;
+  let resolvedSelectedLocationId: string | null = null;
 
   if (selectedId) {
     const selectedSummary = hotels.find((hotelRow) => hotelRow.id === selectedId) ?? null;
+    const locations = locationsByHotelId.get(selectedId) ?? [];
+    const requestedLocationId = getLocationIdFromKey(selectedLocationId);
+    const selectedLocation =
+      (requestedLocationId ? locations.find((location) => location.id === requestedLocationId) : null) ??
+      (selectedLocationId === FALLBACK_LOCATION_KEY ? locations.find((location) => location.location_key === FALLBACK_LOCATION_KEY) : null) ??
+      locations.find((location) => location.is_primary && location.active) ??
+      locations.find((location) => location.active) ??
+      locations[0] ??
+      null;
 
-    const partnerRpcResult = await supabase.rpc("get_hotel_partner_companies_with_commissions", {
-      p_hotel_id: selectedId
-    });
+    if (selectedLocation && selectedSummary) {
+      const partners = await getPartnersForLocation(selectedId, selectedLocation);
+      resolvedSelectedLocationId = selectedLocation.location_key;
 
-    const shouldFallbackPartners = Boolean(
-      partnerRpcResult.error && (isRecoverableReadError(partnerRpcResult.error) || isMissingRpcFunctionError(partnerRpcResult.error))
-    );
-
-    if (partnerRpcResult.error && !shouldFallbackPartners) {
-      throw new Error(partnerRpcResult.error.message);
-    }
-
-    const rpcRows = (partnerRpcResult.data ?? []) as RpcHotelPartnerRow[];
-
-    const partnersFromRpc = rpcRows.map((row) => {
-      const companyId = String(row.company_id ?? "");
-      const companyName = toOptionalText(row.company_name) ?? companyId;
-      const cePStandard = normalizePercentage(row.ce_p_standard_pct, DEFAULT_STANDARD_COMMISSION_PCT);
-      const cePEffective = normalizePercentage(row.ce_p_effective_pct, cePStandard);
-      const cePOverrideValue = row.ce_p_override_pct;
-      const cePOverride = cePOverrideValue === null || cePOverrideValue === undefined
-        ? null
-        : roundTwo(normalizePercentage(cePOverrideValue, cePEffective));
-
-      return {
-        company_id: companyId,
-        company_name: companyName,
-        company_email: toOptionalText(row.company_email),
-        ce_p_standard_pct: roundTwo(cePStandard),
-        ce_p_effective_pct: roundTwo(cePEffective),
-        ce_p_override_pct: cePOverride,
-        has_custom_ce_p: Boolean(row.has_custom_ce_p)
-      } satisfies HotelPartnerCommissionDetailRow;
-    });
-
-    const partners = shouldFallbackPartners
-      ? await getLegacyPartnersForHotel(selectedId)
-      : sortPartners(partnersFromRpc);
-
-    if (selectedSummary) {
       selectedHotel = {
         ...selectedSummary,
-        partners_count: partners.length,
-        standard_ce_p_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT),
-        standard_hotel_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT * selectedSummary.k_hotel),
-        standard_attendi_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT * (1 - selectedSummary.k_hotel)),
-        partners
+        locations,
+        selectedLocation: {
+          ...selectedLocation,
+          standard_ce_p_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT),
+          standard_hotel_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT * selectedLocation.k_hotel),
+          standard_attendi_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT * (1 - selectedLocation.k_hotel)),
+          partners
+        }
+      };
+    } else if (selectedSummary) {
+      selectedHotel = {
+        ...selectedSummary,
+        locations,
+        selectedLocation: null
       };
     }
   }
+
+  const allLocations = Array.from(locationsByHotelId.values()).flat();
 
   return {
     query: normalizedQuery,
     hotels,
     selectedHotelId: selectedId,
+    selectedLocationId: resolvedSelectedLocationId,
     selectedHotel,
-    default_standard_commission_pct: DEFAULT_STANDARD_COMMISSION_PCT
+    default_standard_commission_pct: DEFAULT_STANDARD_COMMISSION_PCT,
+    totals: {
+      hotel_accounts: hotels.length,
+      hotel_locations: allLocations.length,
+      active_locations: allLocations.filter((location) => location.active).length,
+      connected_stripe_accounts: hotels.filter((hotel) => Boolean(hotel.stripe_account_id)).length
+    }
   };
 }

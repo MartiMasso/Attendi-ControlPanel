@@ -308,6 +308,11 @@ export interface BusinessPerformanceEntityRow {
   profilePhotoUrl: string | null;
   email: string | null;
   entityType: BusinessEntityType;
+  stripeAccountId: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  stripeTransfersEnabled: boolean;
+  standardOwnerCommissionPct: number;
   latitude: number | null;
   longitude: number | null;
   preciseLocation: string | null;
@@ -377,6 +382,11 @@ export interface BusinessPerformanceEntityDetail {
   username: string | null;
   email: string | null;
   entityType: BusinessEntityType;
+  stripeAccountId: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  stripeTransfersEnabled: boolean;
+  standardOwnerCommissionPct: number;
   latitude: number | null;
   longitude: number | null;
   preciseLocation: string | null;
