@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Circle,
   ClipboardList,
+  Clock,
   KanbanSquare,
   Mail,
   NotebookPen,
@@ -63,6 +64,8 @@ interface TeamTask {
   startDate: string;
   endDate: string;
   createdAt: string;
+  completedAt?: string;
+  completionDuration?: number;
 }
 
 interface CompanyContact {
@@ -649,6 +652,44 @@ function sortCompanyEvents(events: CompanyCalendarEvent[]) {
   return [...events].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
 }
 
+function parseCreatedAt(value: string): Date {
+  if (value.includes("T")) return new Date(value);
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatTimeAgo(value: string): string {
+  const date = parseCreatedAt(value);
+  if (isNaN(date.getTime())) return "";
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+  if (diffMs < 60000) return "hace un momento";
+  if (minutes < 60) return `hace ${minutes}m`;
+  if (hours < 24) return `hace ${hours}h`;
+  if (days === 1) return "hace 1 día";
+  if (days < 7) return `hace ${days} días`;
+  if (days < 14) return "hace 1 semana";
+  if (days < 30) return `hace ${Math.floor(days / 7)} semanas`;
+  if (days < 60) return "hace 1 mes";
+  return `hace ${Math.floor(days / 30)} meses`;
+}
+
+function formatDuration(ms: number): string {
+  const minutes = Math.floor(ms / 60000);
+  const hours = Math.floor(ms / 3600000);
+  const days = Math.floor(ms / 86400000);
+  if (minutes < 1) return "menos de 1 min";
+  if (minutes < 60) return `${minutes} min`;
+  if (hours < 24) {
+    const remaining = minutes % 60;
+    return remaining > 0 ? `${hours}h ${remaining}min` : `${hours}h`;
+  }
+  if (days === 1) return "1 día";
+  return `${days} días`;
+}
+
 function getCompanyName(companyId: string, companiesById: Map<string, CompanyContact>) {
   const company = companiesById.get(companyId);
   return company?.companyName.trim() || company?.email.trim() || "Sin empresa";
@@ -819,12 +860,24 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
         const patchedEndDate = isValidDateKey(patch.endDate ?? "") ? patch.endDate ?? task.endDate : task.endDate;
         const nextEndDate = normalizeEndDate(nextStartDate, patchedEndDate);
 
-        return {
+        const updated: TeamTask = {
           ...task,
           ...patch,
           startDate: nextStartDate,
           endDate: nextEndDate
         };
+
+        if (patch.status === "done" && task.status !== "done") {
+          const now = Date.now();
+          const createdTime = parseCreatedAt(task.createdAt).getTime();
+          updated.completedAt = new Date(now).toISOString();
+          updated.completionDuration = isNaN(createdTime) ? 0 : now - createdTime;
+        } else if (patch.status && patch.status !== "done") {
+          updated.completedAt = undefined;
+          updated.completionDuration = undefined;
+        }
+
+        return updated;
       })
     }));
   }
@@ -891,7 +944,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
       priority: newTask.priority,
       startDate,
       endDate: normalizeEndDate(startDate, newTask.endDate || startDate),
-      createdAt: getTodayKey()
+      createdAt: new Date().toISOString()
     };
 
     setWorkspace((current) => ({
@@ -1304,6 +1357,16 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                                     </span>
                                   </div>
                                   <h3 className="mt-2 text-base font-semibold leading-snug text-text">{task.title}</h3>
+                                  <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
+                                    <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                    {formatTimeAgo(task.createdAt)}
+                                  </p>
+                                  {task.completionDuration != null ? (
+                                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-700">
+                                      <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                      Completada en {formatDuration(task.completionDuration)}
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <button
                                   type="button"
