@@ -8,7 +8,7 @@ function withRedirect(request: NextRequest, pathname: string, search?: string) {
   url.search = search ?? "";
   return NextResponse.redirect(url);
 }
-
+ 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isStaticAsset =

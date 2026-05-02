@@ -15,7 +15,7 @@ Attendi Control Panel is a **Next.js 14 App Router** admin web app for Attendi i
 
 This is **not** a partner/hotel dashboard. It is intended only for Attendi internal admins.
 
-## Tech Stack
+## Tech Stack 
 
 - Next.js 14+ (App Router)
 - TypeScript (strict)
