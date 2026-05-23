@@ -19,6 +19,10 @@ export type PlatformFeedbackStatus = "new" | "in_review" | "resolved" | "closed"
 export type InternalTaskStatus = "todo" | "in_progress" | "blocked" | "done";
 export type InternalTaskPriority = "low" | "medium" | "high" | "urgent";
 export type InternalNoteCategory = "announcement" | "decision" | "reminder" | "resource";
+export type InternalCompanyStatus = "Por contactar" | "Contactado" | "Interesado" | "En negociación" | "Cerrado" | "Descartado";
+export type InternalCompanyPriority = "Baja" | "Media" | "Alta";
+export type InternalCompanyNextStep = "Enviar email" | "Llamar" | "Agendar demo" | "Enviar propuesta" | "Esperar respuesta" | "Cerrar";
+export type InternalCompanyEventType = "Llamada" | "Correo pendiente" | "Demo" | "Follow-up" | "Recordatorio" | "Otro";
 
 export interface AdminRecord {
   id: string;
@@ -224,6 +228,42 @@ export interface InternalNoteRow {
   pinned: boolean;
   created_by_user_id: string;
   created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InternalCompanyContactRow {
+  id: string;
+  company_name: string;
+  email: string;
+  phone: string;
+  category: string;
+  status: InternalCompanyStatus;
+  priority: InternalCompanyPriority;
+  owner_member_id: string;
+  next_step: InternalCompanyNextStep;
+  follow_up_date: string | null;
+  created_by_user_id: string | null;
+  updated_by_user_id: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InternalCompanyEventRow {
+  id: string;
+  company_id: string | null;
+  event_date: string;
+  event_time: string;
+  event_type: InternalCompanyEventType;
+  title: string;
+  notes: string;
+  reminder_enabled: boolean;
+  reminder_lead_days: number;
+  reminder_email: string;
+  created_by_user_id: string | null;
+  updated_by_user_id: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }

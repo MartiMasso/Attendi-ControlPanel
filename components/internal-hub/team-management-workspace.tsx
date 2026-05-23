@@ -31,7 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { InternalHubMember } from "@/types";
+import type { InternalCompanyContactRow, InternalCompanyEventRow, InternalHubMember } from "@/types";
 
 type WorkspaceTab = "tasks" | "companies" | "notes";
 type TaskStatus = "todo" | "in_progress" | "done";
@@ -119,9 +119,12 @@ interface StoredWorkspace {
 interface TeamManagementWorkspaceProps {
   initialMembers: InternalHubMember[];
   initialCompanyCategories: string[];
+  initialCompanies: InternalCompanyContactRow[];
+  initialCompanyEvents: InternalCompanyEventRow[];
 }
 
 const STORAGE_KEY = "attendi-team-management-workspace-v1";
+const STORAGE_BACKUP_KEY = "attendi-team-management-workspace-v1-pre-server-sync-backup";
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const REMINDER_EMAIL = "attendi.rent.app@gmail.com";
 
@@ -455,9 +458,77 @@ function buildInitialMembers(initialMembers: InternalHubMember[]): TeamMember[] 
   }));
 }
 
-function buildInitialWorkspace(initialMembers: InternalHubMember[], initialCompanyCategories: string[]): WorkspaceState {
+function normalizeEventTime(value: string) {
+  const match = value.match(/^(\d{2}:\d{2})/);
+  return match?.[1] ?? "09:00";
+}
+
+function companyFromRow(row: InternalCompanyContactRow): CompanyContact {
+  return {
+    id: row.id,
+    companyName: row.company_name,
+    email: row.email,
+    phone: row.phone,
+    category: row.category,
+    status: row.status,
+    priority: row.priority,
+    ownerId: row.owner_member_id,
+    nextStep: row.next_step,
+    followUpDate: row.follow_up_date ?? getTodayKey()
+  };
+}
+
+function companyEventFromRow(row: InternalCompanyEventRow): CompanyCalendarEvent {
+  return {
+    id: row.id,
+    companyId: row.company_id ?? "",
+    date: row.event_date,
+    time: normalizeEventTime(row.event_time),
+    type: row.event_type,
+    title: row.title,
+    notes: row.notes,
+    reminderEnabled: row.reminder_enabled,
+    reminderLeadDays: row.reminder_lead_days,
+    reminderEmail: row.reminder_email || REMINDER_EMAIL
+  };
+}
+
+function mergeById<T extends { id: string }>(primary: T[], secondary: T[]) {
+  const rowsById = new Map<string, T>();
+  primary.forEach((row) => rowsById.set(row.id, row));
+  secondary.forEach((row) => {
+    if (!rowsById.has(row.id)) {
+      rowsById.set(row.id, row);
+    }
+  });
+  return Array.from(rowsById.values());
+}
+
+function isUnchangedSeedCompany(company: CompanyContact) {
+  return (
+    (company.id === "seed-company-1" && company.companyName === "Hotel Miramar" && company.email === "partners@miramar.example") ||
+    (company.id === "seed-company-2" && company.companyName === "Barcelona Experiences" && company.email === "hello@bcnexperiences.example")
+  );
+}
+
+function isUnchangedSeedCompanyEvent(event: CompanyCalendarEvent) {
+  return event.id === "seed-company-event-1" && event.companyId === "seed-company-1" && event.title === "Primera llamada comercial";
+}
+
+function getImportableLegacyCompanies(companies: CompanyContact[]) {
+  return companies.filter((company) => !isUnchangedSeedCompany(company));
+}
+
+function getImportableLegacyCompanyEvents(events: CompanyCalendarEvent[]) {
+  return events.filter((event) => !isUnchangedSeedCompanyEvent(event));
+}
+
+function buildInitialWorkspace(
+  initialMembers: InternalHubMember[],
+  initialCompanies: InternalCompanyContactRow[],
+  initialCompanyEvents: InternalCompanyEventRow[]
+): WorkspaceState {
   const members = buildInitialMembers(initialMembers);
-  const categories = getCompanyCategories([...DEFAULT_COMPANY_CATEGORIES, ...initialCompanyCategories]);
   const today = getTodayKey();
   const firstMember = members[0]?.id ?? "";
   const secondMember = members[1]?.id ?? firstMember;
@@ -503,46 +574,8 @@ function buildInitialWorkspace(initialMembers: InternalHubMember[], initialCompa
         createdAt: today
       }
     ],
-    companies: [
-      {
-        id: "seed-company-1",
-        companyName: "Hotel Miramar",
-        email: "partners@miramar.example",
-        phone: "+34 600 000 001",
-        category: categories[0] ?? "Hotel/Hub",
-        status: "Contactado",
-        priority: "Alta",
-        ownerId: firstMember,
-        nextStep: "Agendar demo",
-        followUpDate: addDays(today, 2)
-      },
-      {
-        id: "seed-company-2",
-        companyName: "Barcelona Experiences",
-        email: "hello@bcnexperiences.example",
-        phone: "+34 600 000 002",
-        category: categories[1] ?? categories[0] ?? "Hotel/Hub",
-        status: "Interesado",
-        priority: "Media",
-        ownerId: secondMember,
-        nextStep: "Enviar propuesta",
-        followUpDate: addDays(today, 5)
-      }
-    ],
-    companyEvents: [
-      {
-        id: "seed-company-event-1",
-        companyId: "seed-company-1",
-        date: addDays(today, 2),
-        time: "10:00",
-        type: "Llamada",
-        title: "Primera llamada comercial",
-        notes: "Revisar encaje y disponibilidad para demo.",
-        reminderEnabled: true,
-        reminderLeadDays: 1,
-        reminderEmail: REMINDER_EMAIL
-      }
-    ],
+    companies: initialCompanies.length ? initialCompanies.map(companyFromRow) : [],
+    companyEvents: initialCompanyEvents.length ? initialCompanyEvents.map(companyEventFromRow) : [],
     notes: [
       {
         id: "seed-note-1",
@@ -722,10 +755,19 @@ function compareSortableText(a: string, b: string, direction: SortDirection) {
   return direction === "asc" ? result : result * -1;
 }
 
-export function TeamManagementWorkspace({ initialMembers, initialCompanyCategories }: TeamManagementWorkspaceProps) {
-  const fallbackWorkspace = useMemo(() => buildInitialWorkspace(initialMembers, initialCompanyCategories), [initialCompanyCategories, initialMembers]);
+export function TeamManagementWorkspace({
+  initialMembers,
+  initialCompanyCategories,
+  initialCompanies,
+  initialCompanyEvents
+}: TeamManagementWorkspaceProps) {
+  const fallbackWorkspace = useMemo(
+    () => buildInitialWorkspace(initialMembers, initialCompanies, initialCompanyEvents),
+    [initialCompanyEvents, initialCompanies, initialMembers]
+  );
   const [workspace, setWorkspace] = useState<WorkspaceState>(fallbackWorkspace);
   const [storageReady, setStorageReady] = useState(false);
+  const [companySyncMessage, setCompanySyncMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("tasks");
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey; direction: SortDirection } | null>(null);
@@ -765,8 +807,52 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
   });
 
   useEffect(() => {
-    setWorkspace(readStoredWorkspace(window.localStorage.getItem(STORAGE_KEY), fallbackWorkspace));
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw && !window.localStorage.getItem(STORAGE_BACKUP_KEY)) {
+      window.localStorage.setItem(STORAGE_BACKUP_KEY, raw);
+    }
+
+    const stored = readStoredWorkspace(raw, fallbackWorkspace);
+    const legacyCompanies = raw ? getImportableLegacyCompanies(stored.companies) : [];
+    const legacyCompanyEvents = raw ? getImportableLegacyCompanyEvents(stored.companyEvents) : [];
+
+    setWorkspace({
+      ...stored,
+      companies: mergeById(fallbackWorkspace.companies, legacyCompanies),
+      companyEvents: mergeById(fallbackWorkspace.companyEvents, legacyCompanyEvents)
+    });
     setStorageReady(true);
+
+    if (legacyCompanies.length || legacyCompanyEvents.length) {
+      fetch("/api/internal/company-contacts/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companies: legacyCompanies, companyEvents: legacyCompanyEvents })
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            throw new Error(body?.error ?? "No se pudo importar el backup local.");
+          }
+
+          return response.json() as Promise<{
+            companiesInserted?: number;
+            companiesRestored?: number;
+            eventsInserted?: number;
+            eventsRestored?: number;
+          }>;
+        })
+        .then((result) => {
+          const recoveredCompanies = (result.companiesInserted ?? 0) + (result.companiesRestored ?? 0);
+          const recoveredEvents = (result.eventsInserted ?? 0) + (result.eventsRestored ?? 0);
+          if (recoveredCompanies || recoveredEvents) {
+            setCompanySyncMessage(`Backup local importado: ${recoveredCompanies} empresas y ${recoveredEvents} acciones.`);
+          }
+        })
+        .catch((error) => {
+          setCompanySyncMessage(error instanceof Error ? error.message : "No se pudo importar el backup local.");
+        });
+    }
   }, [fallbackWorkspace]);
 
   useEffect(() => {
@@ -849,6 +935,52 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
       done: workspace.tasks.filter((task) => task.status === "done").length
     };
   }, [workspace.tasks]);
+
+  function persistCompany(company: CompanyContact) {
+    fetch("/api/internal/company-contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(company)
+    }).catch(() => {
+      setCompanySyncMessage("No se pudo guardar la empresa en el servidor. La copia local sigue en este navegador.");
+    });
+  }
+
+  function persistCompanyPatch(companyId: string, patch: Partial<CompanyContact>) {
+    fetch(`/api/internal/company-contacts/${encodeURIComponent(companyId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch)
+    }).catch(() => {
+      setCompanySyncMessage("No se pudo guardar el cambio de empresa en el servidor. La copia local sigue en este navegador.");
+    });
+  }
+
+  function persistCompanyDelete(companyId: string) {
+    fetch(`/api/internal/company-contacts/${encodeURIComponent(companyId)}`, {
+      method: "DELETE"
+    }).catch(() => {
+      setCompanySyncMessage("No se pudo eliminar la empresa en el servidor. La copia local sigue en este navegador.");
+    });
+  }
+
+  function persistCompanyEvent(event: CompanyCalendarEvent) {
+    fetch("/api/internal/company-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event)
+    }).catch(() => {
+      setCompanySyncMessage("No se pudo guardar la acción comercial en el servidor. La copia local sigue en este navegador.");
+    });
+  }
+
+  function persistCompanyEventDelete(eventId: string) {
+    fetch(`/api/internal/company-events/${encodeURIComponent(eventId)}`, {
+      method: "DELETE"
+    }).catch(() => {
+      setCompanySyncMessage("No se pudo eliminar la acción comercial en el servidor. La copia local sigue en este navegador.");
+    });
+  }
 
   function updateTask(taskId: string, patch: Partial<TeamTask>) {
     setWorkspace((current) => ({
@@ -967,31 +1099,35 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
   }
 
   function addCompanyRow() {
+    const company: CompanyContact = {
+      id: createId("company"),
+      companyName: "",
+      email: "",
+      phone: "",
+      category: companyCategories[0] ?? "Hotel/Hub",
+      status: "Por contactar",
+      priority: "Media",
+      ownerId: workspace.members[0]?.id ?? "",
+      nextStep: "Enviar email",
+      followUpDate: getTodayKey()
+    };
+
     setWorkspace((current) => ({
       ...current,
-      companies: [
-        ...current.companies,
-        {
-          id: createId("company"),
-          companyName: "",
-          email: "",
-          phone: "",
-          category: companyCategories[0] ?? "Hotel/Hub",
-          status: "Por contactar",
-          priority: "Media",
-          ownerId: current.members[0]?.id ?? "",
-          nextStep: "Enviar email",
-          followUpDate: getTodayKey()
-        }
-      ]
+      companies: [...current.companies, company]
     }));
+    persistCompany(company);
   }
 
-  function updateCompany(companyId: string, patch: Partial<CompanyContact>) {
+  function updateCompany(companyId: string, patch: Partial<CompanyContact>, persist = false) {
     setWorkspace((current) => ({
       ...current,
       companies: current.companies.map((company) => (company.id === companyId ? { ...company, ...patch } : company))
     }));
+
+    if (persist) {
+      persistCompanyPatch(companyId, patch);
+    }
   }
 
   function deleteCompany(companyId: string) {
@@ -1004,6 +1140,8 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
     if (newCompanyEvent.companyId === companyId) {
       setNewCompanyEvent((current) => ({ ...current, companyId: "" }));
     }
+
+    persistCompanyDelete(companyId);
   }
 
   function updateCompanySort(key: CompanySortKey) {
@@ -1070,6 +1208,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
       ...current,
       companyEvents: [...current.companyEvents, calendarEvent]
     }));
+    persistCompanyEvent(calendarEvent);
     setNewCompanyEvent((current) => ({
       ...current,
       title: "",
@@ -1082,6 +1221,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
       ...current,
       companyEvents: current.companyEvents.filter((event) => event.id !== eventId)
     }));
+    persistCompanyEventDelete(eventId);
   }
 
   function handleAddNote(event: FormEvent<HTMLFormElement>) {
@@ -1571,6 +1711,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
               Añadir empresa
             </Button>
           </div>
+          {companySyncMessage ? <p className="border-b border-border px-4 py-2 text-xs text-text-muted">{companySyncMessage}</p> : null}
 
           <div className="max-h-[760px] overflow-auto border-y border-border">
             <table className="min-w-[1180px] w-full border-collapse text-sm">
@@ -1599,6 +1740,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                       <input
                         value={company.companyName}
                         onChange={(event) => updateCompany(company.id, { companyName: event.target.value })}
+                        onBlur={(event) => persistCompanyPatch(company.id, { companyName: event.currentTarget.value })}
                         className="h-11 w-full bg-transparent px-3 text-sm outline-none focus:bg-blue-50"
                         placeholder="Nombre empresa"
                         aria-label={`Empresa fila ${index + 1}`}
@@ -1608,6 +1750,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                       <input
                         value={company.email}
                         onChange={(event) => updateCompany(company.id, { email: event.target.value })}
+                        onBlur={(event) => persistCompanyPatch(company.id, { email: event.currentTarget.value })}
                         className="h-11 w-full bg-transparent px-3 text-sm outline-none focus:bg-blue-50"
                         placeholder="email@empresa.com"
                         aria-label={`Email fila ${index + 1}`}
@@ -1617,6 +1760,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                       <input
                         value={company.phone}
                         onChange={(event) => updateCompany(company.id, { phone: event.target.value })}
+                        onBlur={(event) => persistCompanyPatch(company.id, { phone: event.currentTarget.value })}
                         className="h-11 w-full bg-transparent px-3 text-sm outline-none focus:bg-blue-50"
                         placeholder="+34"
                         aria-label={`Teléfono fila ${index + 1}`}
@@ -1625,7 +1769,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                     <td className="border-b border-r border-border px-3 py-2">
                       <select
                         value={getKnownCompanyCategory(company.category, companyCategories)}
-                        onChange={(event) => updateCompany(company.id, { category: event.target.value })}
+                        onChange={(event) => updateCompany(company.id, { category: event.target.value }, true)}
                         className={cn(
                           "h-7 max-w-full rounded-full border-0 px-3 pr-7 text-sm font-semibold outline-none ring-1 ring-transparent transition focus:ring-primary/40",
                           getCompanyCategoryClass(getKnownCompanyCategory(company.category, companyCategories))
@@ -1642,7 +1786,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                     <td className="border-b border-r border-border px-3 py-2">
                       <select
                         value={company.status}
-                        onChange={(event) => updateCompany(company.id, { status: event.target.value as CompanyStatus })}
+                        onChange={(event) => updateCompany(company.id, { status: event.target.value as CompanyStatus }, true)}
                         className={cn(
                           "h-7 max-w-full rounded-full border-0 px-3 pr-7 text-sm font-semibold outline-none ring-1 ring-transparent transition focus:ring-primary/40",
                           companyStatusClass[company.status]
@@ -1659,7 +1803,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                     <td className="border-b border-r border-border px-3 py-2">
                       <select
                         value={company.priority}
-                        onChange={(event) => updateCompany(company.id, { priority: event.target.value as CompanyPriority })}
+                        onChange={(event) => updateCompany(company.id, { priority: event.target.value as CompanyPriority }, true)}
                         className={cn(
                           "h-7 max-w-full rounded-full border-0 px-3 pr-7 text-sm font-semibold outline-none ring-1 ring-transparent transition focus:ring-primary/40",
                           companyPriorityClass[company.priority]
@@ -1676,7 +1820,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                     <td className="border-b border-r border-border p-0">
                       <select
                         value={company.ownerId}
-                        onChange={(event) => updateCompany(company.id, { ownerId: event.target.value })}
+                        onChange={(event) => updateCompany(company.id, { ownerId: event.target.value }, true)}
                         className="h-11 w-full bg-transparent px-3 text-sm outline-none focus:bg-blue-50"
                         aria-label={`Owner fila ${index + 1}`}
                       >
@@ -1691,7 +1835,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                     <td className="border-b border-r border-border p-0">
                       <select
                         value={company.nextStep}
-                        onChange={(event) => updateCompany(company.id, { nextStep: event.target.value as CompanyNextStep })}
+                        onChange={(event) => updateCompany(company.id, { nextStep: event.target.value as CompanyNextStep }, true)}
                         className="h-11 w-full bg-transparent px-3 text-sm outline-none focus:bg-blue-50"
                         aria-label={`Próximo paso fila ${index + 1}`}
                       >
@@ -1706,7 +1850,7 @@ export function TeamManagementWorkspace({ initialMembers, initialCompanyCategori
                       <input
                         type="date"
                         value={company.followUpDate}
-                        onChange={(event) => updateCompany(company.id, { followUpDate: event.target.value })}
+                        onChange={(event) => updateCompany(company.id, { followUpDate: event.target.value }, true)}
                         className="h-11 w-full bg-transparent px-3 text-sm outline-none focus:bg-blue-50"
                         aria-label={`Fecha fila ${index + 1}`}
                       />

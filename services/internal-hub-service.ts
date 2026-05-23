@@ -3,6 +3,8 @@ import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/error
 import { isUUID } from "@/lib/utils";
 import { getProfilesMap } from "@/services/profile-helpers";
 import type {
+  InternalCompanyContactRow,
+  InternalCompanyEventRow,
   InternalHubMember,
   InternalNoteRow,
   InternalTaskPriority,
@@ -194,6 +196,81 @@ export async function listInternalMembers(): Promise<InternalHubMember[]> {
       role: row.role
     };
   });
+}
+
+export async function listInternalCompanyContacts(): Promise<InternalCompanyContactRow[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("internal_hub_company_contacts")
+    .select(
+      [
+        "id",
+        "company_name",
+        "email",
+        "phone",
+        "category",
+        "status",
+        "priority",
+        "owner_member_id",
+        "next_step",
+        "follow_up_date",
+        "created_by_user_id",
+        "updated_by_user_id",
+        "deleted_at",
+        "created_at",
+        "updated_at"
+      ].join(",")
+    )
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (isMissingDatabaseObject(error) || isPermissionError(error)) {
+      return [];
+    }
+
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as unknown as InternalCompanyContactRow[];
+}
+
+export async function listInternalCompanyEvents(): Promise<InternalCompanyEventRow[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("internal_hub_company_events")
+    .select(
+      [
+        "id",
+        "company_id",
+        "event_date",
+        "event_time",
+        "event_type",
+        "title",
+        "notes",
+        "reminder_enabled",
+        "reminder_lead_days",
+        "reminder_email",
+        "created_by_user_id",
+        "updated_by_user_id",
+        "deleted_at",
+        "created_at",
+        "updated_at"
+      ].join(",")
+    )
+    .is("deleted_at", null)
+    .order("event_date", { ascending: true })
+    .order("event_time", { ascending: true });
+
+  if (error) {
+    if (isMissingDatabaseObject(error) || isPermissionError(error)) {
+      return [];
+    }
+
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as unknown as InternalCompanyEventRow[];
 }
 
 export async function listInternalTasks({
