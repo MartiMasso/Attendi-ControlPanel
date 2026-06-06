@@ -1,6 +1,6 @@
 "use client";
 
-import { BedDouble, Building2, CheckCircle2, Mail, Plus, Search } from "lucide-react";
+import { BedDouble, Building2, CheckCircle2, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -126,10 +126,6 @@ export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWor
     setSyncMessage(`Correo enviado a ${companyName || "el contacto"}.`);
   }
 
-  function connectGmail() {
-    window.location.href = "/api/internal/outreach/oauth/start";
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -172,12 +168,7 @@ export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWor
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
             Gmail conectado
           </span>
-        ) : (
-          <Button type="button" variant="secondary" onClick={connectGmail}>
-            <Mail className="h-4 w-4" aria-hidden="true" />
-            Conectar Gmail
-          </Button>
-        )}
+        ) : null}
       </div>
 
       <OutreachPendingStrip contacts={listContacts} />
@@ -215,7 +206,6 @@ export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWor
           contact={composeContact}
           gmailConnected={gmailConnected}
           onSent={handleSent}
-          onConnectGmail={connectGmail}
           onClose={() => setComposeContact(null)}
         />
       ) : null}

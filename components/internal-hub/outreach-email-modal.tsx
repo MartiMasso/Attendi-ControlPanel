@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Inbox, Loader2, Mail, Paperclip, PenLine, Send, X } from "lucide-react";
+import { Check, Copy, Download, Inbox, Loader2, Paperclip, PenLine, Send, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,10 @@ import {
   KIND_LABEL,
   LANG_LABEL,
   PDF_FILES,
+  htmlFromPlain,
   renderPlain,
   renderSubject,
+  templateHeadings,
   type OutreachLang,
   type OutreachTemplateKind
 } from "@/components/internal-hub/outreach-templates";
@@ -28,7 +30,6 @@ interface OutreachEmailModalProps {
   contact: OutreachContact;
   gmailConnected: boolean;
   onSent: (contactId: string, companyName: string) => void;
-  onConnectGmail: () => void;
   onClose: () => void;
 }
 
@@ -42,7 +43,7 @@ const KIND_OPTIONS: Array<{ value: OutreachTemplateKind; label: string }> = [
   { value: "follow_up", label: KIND_LABEL.follow_up }
 ];
 
-export function OutreachEmailModal({ contact, gmailConnected, onSent, onConnectGmail, onClose }: OutreachEmailModalProps) {
+export function OutreachEmailModal({ contact, gmailConnected, onSent, onClose }: OutreachEmailModalProps) {
   const ctx = { companyName: contact.companyName };
   const [lang, setLang] = useState<OutreachLang>("ca");
   const [kind, setKind] = useState<OutreachTemplateKind>("first");
@@ -66,6 +67,7 @@ export function OutreachEmailModal({ contact, gmailConnected, onSent, onConnectG
   const composeUrl = buildGmailComposeUrl(recipient, { subject, body });
   const conversationUrl = buildGmailConversationUrl(recipient);
   const attachment = template.attachment ? PDF_FILES[template.attachment] : null;
+  const attachmentUrl = template.attachment ? `/api/internal/outreach/attachment/${template.attachment}` : null;
 
   function applyTemplate(nextLang: OutreachLang, nextKind: OutreachTemplateKind) {
     const next = findTemplate(contact.listType, nextLang, nextKind);
@@ -91,9 +93,27 @@ export function OutreachEmailModal({ contact, gmailConnected, onSent, onConnectG
     window.open(conversationUrl, "_blank", "noopener,noreferrer");
   }
 
+  function downloadAttachment() {
+    if (attachmentUrl) {
+      window.location.href = attachmentUrl;
+    }
+  }
+
   async function copyDraft() {
+    const plain = body;
+    const html = htmlFromPlain(body, templateHeadings(template));
+
     try {
-      await navigator.clipboard.writeText(`${subject}\n\n${body}`);
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([plain], { type: "text/plain" })
+          })
+        ]);
+      } else {
+        await navigator.clipboard.writeText(plain);
+      }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -187,7 +207,8 @@ export function OutreachEmailModal({ contact, gmailConnected, onSent, onConnectG
             <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
               <Paperclip className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                Lleva PDF adjunto: <strong className="font-semibold">{attachment.label}</strong> (se adjunta al enviar).
+                PDF: <strong className="font-semibold">{attachment.label}</strong>
+                {gmailConnected ? " (se adjunta al enviar)." : " (descárgalo y adjúntalo en Gmail)."}
               </span>
             </div>
           ) : null}
@@ -198,22 +219,18 @@ export function OutreachEmailModal({ contact, gmailConnected, onSent, onConnectG
             <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{sendError}</p>
           ) : null}
 
-          {!gmailConnected ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-              <span className="text-xs text-blue-800">Conecta Gmail para enviar el correo con el PDF adjunto y los títulos en negrita.</span>
-              <Button type="button" size="sm" onClick={onConnectGmail}>
-                <Mail className="h-4 w-4" aria-hidden="true" />
-                Conectar Gmail
-              </Button>
-            </div>
-          ) : null}
-
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={copyDraft}>
               {copied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
-              {copied ? "Copiado" : "Copiar texto"}
+              {copied ? "Copiado" : "Copiar mensaje"}
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {attachmentUrl ? (
+                <Button type="button" variant="secondary" size="sm" onClick={downloadAttachment}>
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  Descargar PDF
+                </Button>
+              ) : null}
               <Button type="button" variant="secondary" onClick={openConversation} disabled={!recipient}>
                 <Inbox className="h-4 w-4" aria-hidden="true" />
                 Ver conversación

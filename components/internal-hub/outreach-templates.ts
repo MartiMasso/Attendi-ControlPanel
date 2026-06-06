@@ -38,49 +38,49 @@ export const KIND_LABEL: Record<OutreachTemplateKind, string> = { first: "Primer
 
 const CALENDLY = "https://calendly.com/attendi-rent-app/30min";
 
-const HOTEL_SUBJECT_CA = "Attendi - Catàleg d'activitats i serveis locals per als vostres hostes";
+const HOTEL_SUBJECT_CA = "Attendi - Catàleg d’activitats i serveis locals per als vostres hostes";
 const HOTEL_SUBJECT_ES = "Attendi - Catálogo de actividades y servicios locales para vuestros huéspedes";
 const EMPRESA_SUBJECT = "Attendi";
 
-const HOTEL_FIRST_CA = `Hola bones,
+const HOTEL_FIRST_CA = `Hola,
 
-Soc en Martí, d'Attendi, una plataforma que connecta hotels, càmpings, apartaments turístics i altres allotjaments amb empreses locals d'activitats, experiències, serveis i lloguers.
+Soc en Martí, d’Attendi, una plataforma que connecta hotels, càmpings, apartaments turístics i altres allotjaments amb empreses locals d’activitats, experiències, serveis i lloguers.
 
-Acabem de parlar per telèfon i m'heu comentat que us enviés més informació sobre la plataforma, així que us explico breument la idea i us adjunto un PDF.
+Acabem de parlar per telèfon i m’heu comentat que us enviés més informació sobre la plataforma, així que us explico breument la idea i us adjunto un PDF.
 
 ## Què és Attendi?
 
-Attendi és una plataforma pensada perquè els allotjaments puguin oferir als seus hostes una selecció d'activitats, experiències i serveis locals des d'un únic espai digital.
+Attendi és una plataforma pensada perquè els allotjaments puguin oferir als seus hostes una selecció d’activitats, experiències i serveis locals des d’un únic espai digital.
 
-La idea és que el client pugui descobrir, reservar i pagar fàcilment activitats properes, serveis de l'allotjament o experiències recomanades, ja sigui des de recepció o directament des del seu mòbil.
+La idea és que el client pugui descobrir, reservar i pagar fàcilment activitats properes, serveis de l’allotjament o experiències recomanades, ja sigui des de recepció o directament des del seu mòbil.
 
-Per al vostre hotel, Attendi pot funcionar com una eina per millorar l'experiència del client, generar ingressos addicionals i tenir més control sobre les recomanacions i serveis que oferiu als hostes.
+Per al vostre hotel, Attendi pot funcionar com una eina per millorar l’experiència del client, generar ingressos addicionals i tenir més control sobre les recomanacions i serveis que oferiu als hostes.
 
 ## Com funciona?
 
-Cada hotel o allotjament té el seu propi perfil dins d'Attendi. Des d'aquest perfil, l'hoste pot accedir a diferents seccions: serveis propis de l'hotel, activitats properes, experiències locals, lloguers, excursions o altres serveis complementaris.
+Cada hotel o allotjament té el seu propi perfil dins d’Attendi. Des d’aquest perfil, l’hoste pot accedir a diferents seccions: serveis propis de l’hotel, activitats properes, experiències locals, lloguers, excursions o altres serveis complementaris.
 
-Per exemple, un hoste podria veure activitats d'aventura, visites guiades, lloguer de bicicletes, transport, experiències gastronòmiques o qualsevol altre servei disponible a la zona.
+Per exemple, un hoste podria veure activitats d’aventura, visites guiades, lloguer de bicicletes, transport, experiències gastronòmiques o qualsevol altre servei disponible a la zona.
 
 Des de la plataforma, el client pot consultar imatges, preus, horaris, disponibilitat, ubicació en un mapa interactiu i fer la reserva directament.
 
 ## El que proposem
 
-Ens agradaria comptar amb el vostre hotel dins de la xarxa d'allotjaments d'Attendi.
+Ens agradaria comptar amb el vostre hotel dins de la xarxa d’allotjaments d’Attendi.
 
 La idea és que pugueu oferir als vostres hostes una eina senzilla i visual per descobrir activitats i serveis durant la seva estada, sense haver de gestionar-ho tot manualment des de recepció.
 
-A més, Attendi us permetria tenir un canal digital propi on centralitzar tant els serveis de l'hotel com les activitats d'empreses locals col·laboradores.
+A més, Attendi us permetria tenir un canal digital propi on centralitzar tant els serveis de l’hotel com les activitats d’empreses locals col·laboradores.
 
-D'aquesta manera, el vostre hotel pot oferir una experiència més completa al client i, alhora, generar una nova via d'ingressos a través de les reserves que es facin des del vostre perfil.
+D’aquesta manera, el vostre hotel pot oferir una experiència més completa al client i, alhora, generar una nova via d’ingressos a través de les reserves que es facin des del vostre perfil.
 
 ## Condicions
 
 No hi ha quota mensual ni cost fix per formar part de la plataforma.
 
-Attendi només aplica una comissió quan es realitza una reserva a través del perfil del vostre allotjament. Aquesta comissió es reparteix entre l'hotel i Attendi.
+Attendi només aplica una comissió quan es realitza una reserva a través del perfil del vostre allotjament. Aquesta comissió es reparteix entre l’hotel i Attendi.
 
-Això permet que l'hotel pugui obtenir ingressos addicionals per recomanar activitats i serveis locals, sense haver d'assumir cap cost inicial ni risc econòmic.
+Això permet que l’hotel pugui obtenir ingressos addicionals per recomanar activitats i serveis locals, sense haver d’assumir cap cost inicial ni risc econòmic.
 
 També us ajudem a configurar el vostre perfil, pujar la informació inicial i connectar-vos amb empreses locals de la zona.
 
@@ -88,7 +88,7 @@ També us ajudem a configurar el vostre perfil, pujar la informació inicial i c
 
 Des del vostre panell podreu veure informació útil com ara quines activitats reserven més els vostres hostes, quins serveis tenen més demanda, el volum de reserves generades, els ingressos obtinguts i altres dades que us ajudin a entendre millor els interessos dels vostres clients.
 
-Aquesta informació també pot ajudar-vos a millorar l'experiència del client i a prendre millors decisions sobre quins serveis o activitats promocionar.
+Aquesta informació també pot ajudar-vos a millorar l’experiència del client i a prendre millors decisions sobre quins serveis o activitats promocionar.
 
 ## Avantatges per al vostre hotel
 
@@ -96,9 +96,9 @@ Attendi us permet oferir una experiència més moderna, digital i personalitzada
 
 També ajuda a reduir la dependència de recomanacions manuals des de recepció, facilita la connexió amb empreses locals i us permet participar en els ingressos generats per activitats i serveis reservats pels vostres clients.
 
-A diferència d'altres plataformes, Attendi està pensada per donar protagonisme al vincle entre l'allotjament, el client final i les empreses locals de la zona.
+A diferència d’altres plataformes, Attendi està pensada per donar protagonisme al vincle entre l’allotjament, el client final i les empreses locals de la zona.
 
-Si us encaixa, estarem encantats d'agendar una breu videotrucada per ensenyar-vos com funciona la plataforma i veure com podríem adaptar-la al vostre hotel.
+Si us encaixa, estarem encantats d’agendar una breu videotrucada per ensenyar-vos com funciona la plataforma i veure com podríem adaptar-la al vostre hotel.
 
 Si voleu, podeu triar en aquest enllaç l'hora que us aniria millor per fer una demo: ${CALENDLY}
 
@@ -172,6 +172,7 @@ Y si tenéis cualquier pregunta, no dudéis en contactarme.
 Si quereis, podeis elegir en este enlace la hora que mejor os iría para hacer la demo: ${CALENDLY}
 
 Un saludo,
+
 Martí
 
 616965738`;
