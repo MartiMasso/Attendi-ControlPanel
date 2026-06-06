@@ -1,7 +1,7 @@
 "use client";
 
-import { BedDouble, Building2, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BedDouble, Building2, CheckCircle2, Mail, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ import type { InternalCompanyContactRow, InternalCompanyListType } from "@/types
 
 interface OutreachWorkspaceProps {
   initialContacts: InternalCompanyContactRow[];
+  gmailAccount: { email: string } | null;
 }
 
 const LIST_TABS: Array<{ value: InternalCompanyListType; icon: typeof Building2 }> = [
@@ -28,12 +29,29 @@ const LIST_TABS: Array<{ value: InternalCompanyListType; icon: typeof Building2 
   { value: "alojamiento", icon: BedDouble }
 ];
 
-export function OutreachWorkspace({ initialContacts }: OutreachWorkspaceProps) {
+export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWorkspaceProps) {
   const [contacts, setContacts] = useState<OutreachContact[]>(() => initialContacts.map(contactFromRow));
   const [activeList, setActiveList] = useState<InternalCompanyListType>("empresa");
   const [search, setSearch] = useState("");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [composeContact, setComposeContact] = useState<OutreachContact | null>(null);
+
+  const gmailConnected = Boolean(gmailAccount);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmail = params.get("gmail");
+    if (gmail === "connected") {
+      setSyncMessage("Gmail conectado correctamente.");
+    } else if (gmail === "error") {
+      setSyncMessage("No se pudo conectar Gmail. Inténtalo de nuevo.");
+    }
+    if (gmail) {
+      params.delete("gmail");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    }
+  }, []);
 
   const countsByList = useMemo(() => {
     return contacts.reduce(
@@ -103,38 +121,64 @@ export function OutreachWorkspace({ initialContacts }: OutreachWorkspaceProps) {
       .catch(() => reportError("No se pudo eliminar el contacto en el servidor. Revisa tu conexión."));
   }
 
+  function handleSent(contactId: string, companyName: string) {
+    setContacts((current) => current.map((contact) => (contact.id === contactId ? { ...contact, status: "Contactado" } : contact)));
+    setSyncMessage(`Correo enviado a ${companyName || "el contacto"}.`);
+  }
+
+  function connectGmail() {
+    window.location.href = "/api/internal/outreach/oauth/start";
+  }
+
   return (
     <div className="space-y-5">
-      <nav className="inline-flex w-full gap-1 rounded-xl border border-border bg-surface-elevated p-1 shadow-card sm:w-auto" aria-label="Listas de contacto">
-        {LIST_TABS.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeList === tab.value;
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav className="inline-flex w-full gap-1 rounded-xl border border-border bg-surface-elevated p-1 shadow-card sm:w-auto" aria-label="Listas de contacto">
+          {LIST_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeList === tab.value;
 
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => setActiveList(tab.value)}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition sm:flex-none",
-                isActive ? "bg-primary text-white shadow-sm" : "text-text-muted hover:bg-surface-muted hover:text-text"
-              )}
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              <span>{LIST_META[tab.value].label}</span>
-              <span
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setActiveList(tab.value)}
                 className={cn(
-                  "rounded-full px-2 py-0.5 text-xs font-semibold",
-                  isActive ? "bg-white/20 text-white" : "bg-surface-muted text-text-muted"
+                  "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition sm:flex-none",
+                  isActive ? "bg-primary text-white shadow-sm" : "text-text-muted hover:bg-surface-muted hover:text-text"
                 )}
               >
-                {countsByList[tab.value]}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                <span>{LIST_META[tab.value].label}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-xs font-semibold",
+                    isActive ? "bg-white/20 text-white" : "bg-surface-muted text-text-muted"
+                  )}
+                >
+                  {countsByList[tab.value]}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {gmailConnected ? (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700"
+            title={gmailAccount?.email}
+          >
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Gmail conectado
+          </span>
+        ) : (
+          <Button type="button" variant="secondary" onClick={connectGmail}>
+            <Mail className="h-4 w-4" aria-hidden="true" />
+            Conectar Gmail
+          </Button>
+        )}
+      </div>
 
       <OutreachPendingStrip contacts={listContacts} />
 
@@ -166,7 +210,15 @@ export function OutreachWorkspace({ initialContacts }: OutreachWorkspaceProps) {
 
       <OutreachTable contacts={visibleContacts} onPatch={patchContact} onDelete={deleteContact} onComposeEmail={setComposeContact} />
 
-      {composeContact ? <OutreachEmailModal contact={composeContact} onClose={() => setComposeContact(null)} /> : null}
+      {composeContact ? (
+        <OutreachEmailModal
+          contact={composeContact}
+          gmailConnected={gmailConnected}
+          onSent={handleSent}
+          onConnectGmail={connectGmail}
+          onClose={() => setComposeContact(null)}
+        />
+      ) : null}
     </div>
   );
 }

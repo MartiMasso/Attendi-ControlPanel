@@ -168,24 +168,6 @@ export interface EmailDraft {
 /** Shared outreach mailbox: all emails are sent from this Gmail account. */
 export const OUTREACH_MAILBOX = "attendi.rent.app@gmail.com";
 
-/** Default outreach draft for a contact. Editable by the user before sending. */
-export function buildDefaultDraft(contact: OutreachContact): EmailDraft {
-  const name = contact.companyName.trim();
-  const subject = name ? `Attendi · ${name}` : "Attendi · colaboración";
-  const body = [
-    "Hola,",
-    "",
-    `Te escribo desde Attendi. Nos gustaría enseñaros en una breve demo cómo podemos ayudaros${name ? ` en ${name}` : ""}.`,
-    "",
-    "¿Tendríais un hueco esta semana o la próxima para verlo?",
-    "",
-    "Un saludo,",
-    "Equipo Attendi"
-  ].join("\n");
-
-  return { subject, body };
-}
-
 /**
  * Gmail compose URL that opens a new compose window with the fields prefilled.
  * `authuser` forces the shared outreach mailbox as the sending account.

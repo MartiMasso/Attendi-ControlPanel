@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import { isUUID } from "@/lib/utils";
 import { getProfilesMap } from "@/services/profile-helpers";
@@ -272,6 +273,25 @@ export async function listInternalCompanyEvents(): Promise<InternalCompanyEventR
   }
 
   return (data ?? []) as unknown as InternalCompanyEventRow[];
+}
+
+export async function getOutreachEmailAccount(): Promise<{ email: string } | null> {
+  const supabase = createSupabaseServiceClient();
+  if (!supabase) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("internal_hub_email_account")
+    .select("email,refresh_token")
+    .eq("id", "primary")
+    .maybeSingle();
+
+  if (error || !data?.refresh_token) {
+    return null;
+  }
+
+  return { email: data.email ?? "" };
 }
 
 export async function listInternalTasks({

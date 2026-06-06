@@ -1,12 +1,12 @@
 import { OutreachWorkspace } from "@/components/internal-hub/outreach-workspace";
-import { listInternalCompanyContacts } from "@/services/internal-hub-service";
+import { getOutreachEmailAccount, listInternalCompanyContacts } from "@/services/internal-hub-service";
 
 export default async function InternalHubPage() {
-  const contacts = await listInternalCompanyContacts();
+  const [contacts, gmailAccount] = await Promise.all([listInternalCompanyContacts(), getOutreachEmailAccount()]);
 
   return (
     <div className="space-y-5">
-      <OutreachWorkspace initialContacts={contacts} />
+      <OutreachWorkspace initialContacts={contacts} gmailAccount={gmailAccount} />
     </div>
   );
 }
