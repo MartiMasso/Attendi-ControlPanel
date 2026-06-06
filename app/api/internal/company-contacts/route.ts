@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { getActiveAdminSession } from "@/lib/auth/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createAuditLogEntry } from "@/services/audit-log-service";
-import type { InternalCompanyNextStep, InternalCompanyPriority, InternalCompanyStatus } from "@/types";
+import type { InternalCompanyListType, InternalCompanyNextStep, InternalCompanyPriority, InternalCompanyStatus } from "@/types";
 
 interface Payload {
   id?: string;
+  listType?: InternalCompanyListType;
   companyName?: string;
   email?: string;
   phone?: string;
@@ -21,6 +22,11 @@ interface Payload {
 const STATUSES = new Set<InternalCompanyStatus>(["Por contactar", "Contactado", "Interesado", "En negociación", "Cerrado", "Descartado"]);
 const PRIORITIES = new Set<InternalCompanyPriority>(["Baja", "Media", "Alta"]);
 const NEXT_STEPS = new Set<InternalCompanyNextStep>(["Enviar email", "Llamar", "Agendar demo", "Enviar propuesta", "Esperar respuesta", "Cerrar"]);
+const LIST_TYPES = new Set<InternalCompanyListType>(["empresa", "alojamiento"]);
+
+function normalizeListType(value: unknown) {
+  return LIST_TYPES.has(value as InternalCompanyListType) ? (value as InternalCompanyListType) : "empresa";
+}
 
 function normalizeText(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -56,6 +62,7 @@ export async function POST(request: Request) {
 
   const row = {
     id,
+    list_type: normalizeListType(payload.listType),
     company_name: normalizeText(payload.companyName),
     email: normalizeText(payload.email),
     phone: normalizeText(payload.phone),

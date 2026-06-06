@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { getActiveAdminSession } from "@/lib/auth/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createAuditLogEntry } from "@/services/audit-log-service";
-import type { InternalCompanyNextStep, InternalCompanyPriority, InternalCompanyStatus } from "@/types";
+import type { InternalCompanyListType, InternalCompanyNextStep, InternalCompanyPriority, InternalCompanyStatus } from "@/types";
 
 interface Payload {
+  listType?: InternalCompanyListType;
   companyName?: string;
   email?: string;
   phone?: string;
@@ -20,6 +21,7 @@ interface Payload {
 const STATUSES = new Set<InternalCompanyStatus>(["Por contactar", "Contactado", "Interesado", "En negociación", "Cerrado", "Descartado"]);
 const PRIORITIES = new Set<InternalCompanyPriority>(["Baja", "Media", "Alta"]);
 const NEXT_STEPS = new Set<InternalCompanyNextStep>(["Enviar email", "Llamar", "Agendar demo", "Enviar propuesta", "Esperar respuesta", "Cerrar"]);
+const LIST_TYPES = new Set<InternalCompanyListType>(["empresa", "alojamiento"]);
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -45,6 +47,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const update: Record<string, unknown> = {
     updated_by_user_id: session.userId
   };
+
+  if (payload.listType !== undefined) {
+    if (!LIST_TYPES.has(payload.listType)) {
+      return NextResponse.json({ error: "Invalid list type." }, { status: 400 });
+    }
+
+    update.list_type = payload.listType;
+  }
 
   if (payload.companyName !== undefined) update.company_name = normalizeText(payload.companyName);
   if (payload.email !== undefined) update.email = normalizeText(payload.email);

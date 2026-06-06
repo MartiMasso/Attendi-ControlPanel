@@ -19,6 +19,7 @@ export type PlatformFeedbackStatus = "new" | "in_review" | "resolved" | "closed"
 export type InternalTaskStatus = "todo" | "in_progress" | "blocked" | "done";
 export type InternalTaskPriority = "low" | "medium" | "high" | "urgent";
 export type InternalNoteCategory = "announcement" | "decision" | "reminder" | "resource";
+export type InternalCompanyListType = "empresa" | "alojamiento";
 export type InternalCompanyStatus = "Por contactar" | "Contactado" | "Interesado" | "En negociación" | "Cerrado" | "Descartado";
 export type InternalCompanyPriority = "Baja" | "Media" | "Alta";
 export type InternalCompanyNextStep = "Enviar email" | "Llamar" | "Agendar demo" | "Enviar propuesta" | "Esperar respuesta" | "Cerrar";
@@ -234,6 +235,7 @@ export interface InternalNoteRow {
 
 export interface InternalCompanyContactRow {
   id: string;
+  list_type: InternalCompanyListType;
   company_name: string;
   email: string;
   phone: string;

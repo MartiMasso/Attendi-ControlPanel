@@ -19,7 +19,7 @@ const routeTitles: Record<string, string> = {
   feedback: "Feedback",
   "audit-logs": "Audit Logs",
   settings: "Settings",
-  "internal-hub": "Team Management"
+  "internal-hub": "Contacto"
 };
 
 function formatRole(role: string) {

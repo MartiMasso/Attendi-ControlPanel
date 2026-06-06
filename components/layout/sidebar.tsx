@@ -30,7 +30,7 @@ const navItems = [
   { href: "/feedback", label: "Feedback", icon: MessageSquare },
   { href: "/audit-logs", label: "Audit Logs", icon: BookCheck },
   { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/internal-hub", label: "Team Management", icon: Briefcase }
+  { href: "/internal-hub", label: "Contacto", icon: Briefcase }
 ] as const;
 
 export function Sidebar({

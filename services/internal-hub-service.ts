@@ -205,6 +205,7 @@ export async function listInternalCompanyContacts(): Promise<InternalCompanyCont
     .select(
       [
         "id",
+        "list_type",
         "company_name",
         "email",
         "phone",
