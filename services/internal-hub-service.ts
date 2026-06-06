@@ -216,6 +216,7 @@ export async function listInternalCompanyContacts(): Promise<InternalCompanyCont
         "owner_member_id",
         "next_step",
         "follow_up_date",
+        "metadata",
         "created_by_user_id",
         "updated_by_user_id",
         "deleted_at",

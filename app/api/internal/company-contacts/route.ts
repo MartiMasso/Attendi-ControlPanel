@@ -9,8 +9,10 @@ interface Payload {
   id?: string;
   listType?: InternalCompanyListType;
   companyName?: string;
+  contactName?: string;
   email?: string;
   phone?: string;
+  location?: string;
   category?: string;
   status?: InternalCompanyStatus;
   priority?: InternalCompanyPriority;
@@ -72,6 +74,10 @@ export async function POST(request: Request) {
     owner_member_id: normalizeText(payload.ownerId),
     next_step: normalizeNextStep(payload.nextStep),
     follow_up_date: normalizeDate(payload.followUpDate),
+    metadata: {
+      contactName: normalizeText(payload.contactName),
+      location: normalizeText(payload.location)
+    },
     updated_by_user_id: session.userId,
     deleted_at: null,
     deleted_by_user_id: null

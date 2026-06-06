@@ -29,7 +29,7 @@ import {
 interface OutreachEmailModalProps {
   contact: OutreachContact;
   gmailConnected: boolean;
-  onSent: (contactId: string, companyName: string) => void;
+  onSent: (contactId: string, companyName: string, sentAt: string) => void;
   onClose: () => void;
 }
 
@@ -143,7 +143,8 @@ export function OutreachEmailModal({ contact, gmailConnected, onSent, onClose }:
         return;
       }
 
-      onSent(contact.id, contact.companyName);
+      const payload = (await response.json().catch(() => null)) as { sentAt?: string } | null;
+      onSent(contact.id, contact.companyName, payload?.sentAt ?? new Date().toISOString());
       onClose();
     } catch {
       setSendError("No se pudo enviar el correo. Revisa tu conexión.");

@@ -40,6 +40,10 @@ function normalizeListType(value: unknown): InternalCompanyListType {
   return value === "alojamiento" ? "alojamiento" : "empresa";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 export async function POST(request: Request) {
   const session = await getActiveAdminSession();
   if (!session) {
@@ -74,7 +78,7 @@ export async function POST(request: Request) {
 
   const { data: contact, error: contactError } = await supabase
     .from("internal_hub_company_contacts")
-    .select("id,list_type,email,gmail_thread_id")
+    .select("id,list_type,email,gmail_thread_id,metadata")
     .eq("id", contactId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -131,11 +135,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "send_failed" }, { status: 502 });
   }
 
+  const sentAt = new Date().toISOString();
+  const metadata = isRecord(contact.metadata) ? contact.metadata : {};
+
   await supabase
     .from("internal_hub_company_contacts")
     .update({
       status: "Contactado",
-      last_outbound_at: new Date().toISOString(),
+      metadata: { ...metadata, lastEmailAt: sentAt },
       gmail_thread_id: result.threadId,
       updated_by_user_id: session.userId
     })
@@ -149,5 +156,5 @@ export async function POST(request: Request) {
     metadata: { to, subject, lang, kind, attached: Boolean(template.attachment) }
   }).catch(() => undefined);
 
-  return NextResponse.json({ success: true, threadId: result.threadId });
+  return NextResponse.json({ success: true, threadId: result.threadId, sentAt });
 }

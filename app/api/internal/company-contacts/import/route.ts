@@ -13,8 +13,10 @@ import type {
 interface CompanyPayload {
   id?: string;
   companyName?: string;
+  contactName?: string;
   email?: string;
   phone?: string;
+  location?: string;
   category?: string;
   status?: InternalCompanyStatus;
   priority?: InternalCompanyPriority;
@@ -80,6 +82,10 @@ function normalizeCompany(company: CompanyPayload, userId: string) {
     owner_member_id: normalizeText(company.ownerId),
     next_step: NEXT_STEPS.has(company.nextStep as InternalCompanyNextStep) ? company.nextStep : "Enviar email",
     follow_up_date: normalizeDate(company.followUpDate),
+    metadata: {
+      contactName: normalizeText(company.contactName),
+      location: normalizeText(company.location)
+    },
     updated_by_user_id: userId,
     deleted_at: null,
     deleted_by_user_id: null

@@ -69,7 +69,9 @@ export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWor
     const query = search.trim().toLowerCase();
     if (!query) return listContacts;
     return listContacts.filter((contact) =>
-      [contact.companyName, contact.email, contact.phone].some((field) => field.toLowerCase().includes(query))
+      [contact.companyName, contact.contactName, contact.email, contact.phone, contact.location].some((field) =>
+        field.toLowerCase().includes(query)
+      )
     );
   }, [listContacts, search]);
 
@@ -82,14 +84,17 @@ export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWor
       id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `contact-${Date.now()}`,
       listType: activeList,
       companyName: "",
+      contactName: "",
       email: "",
       phone: "",
+      location: "",
       category: "Hotel/Hub",
       status: "Por contactar",
       priority: "Media",
       ownerId: "",
       nextStep: "Enviar email",
-      followUpDate: ""
+      followUpDate: "",
+      lastEmailAt: ""
     };
 
     setContacts((current) => [...current, contact]);
@@ -121,8 +126,10 @@ export function OutreachWorkspace({ initialContacts, gmailAccount }: OutreachWor
       .catch(() => reportError("No se pudo eliminar el contacto en el servidor. Revisa tu conexión."));
   }
 
-  function handleSent(contactId: string, companyName: string) {
-    setContacts((current) => current.map((contact) => (contact.id === contactId ? { ...contact, status: "Contactado" } : contact)));
+  function handleSent(contactId: string, companyName: string, sentAt: string) {
+    setContacts((current) =>
+      current.map((contact) => (contact.id === contactId ? { ...contact, status: "Contactado", lastEmailAt: sentAt } : contact))
+    );
     setSyncMessage(`Correo enviado a ${companyName || "el contacto"}.`);
   }
 

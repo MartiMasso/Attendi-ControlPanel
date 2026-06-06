@@ -22,14 +22,17 @@ export interface OutreachContact {
   id: string;
   listType: InternalCompanyListType;
   companyName: string;
+  contactName: string;
   email: string;
   phone: string;
+  location: string;
   category: string;
   status: InternalCompanyStatus;
   priority: InternalCompanyPriority;
   ownerId: string;
   nextStep: InternalCompanyNextStep;
   followUpDate: string;
+  lastEmailAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +77,12 @@ export const priorityClass: Record<InternalCompanyPriority, string> = {
   Alta: "bg-rose-100 text-rose-800"
 };
 
+export const priorityDotClass: Record<InternalCompanyPriority, string> = {
+  Baja: "bg-emerald-500",
+  Media: "bg-amber-400",
+  Alta: "bg-rose-500"
+};
+
 const MEMBER_COLORS = ["#125fd6", "#1f8f52", "#d17e13", "#7c3aed", "#0891b2", "#cf3d48", "#475569"];
 
 // ---------------------------------------------------------------------------
@@ -110,6 +119,13 @@ export function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(new Date(year, month - 1, day));
 }
 
+export function formatEmailDate(value: string) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+}
+
 /** A contact is "due" when its follow-up date is today or in the past and it is still active. */
 export function isDue(contact: OutreachContact, today = getTodayKey()) {
   return (
@@ -123,19 +139,27 @@ export function isOverdue(contact: OutreachContact, today = getTodayKey()) {
   return isDue(contact, today) && contact.followUpDate < today;
 }
 
+function metadataText(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : "";
+}
+
 export function contactFromRow(row: InternalCompanyContactRow): OutreachContact {
   return {
     id: row.id,
     listType: row.list_type ?? "empresa",
     companyName: row.company_name,
+    contactName: metadataText(row.metadata, "contactName"),
     email: row.email,
     phone: row.phone,
+    location: metadataText(row.metadata, "location"),
     category: row.category,
     status: row.status,
     priority: row.priority,
     ownerId: row.owner_member_id,
     nextStep: row.next_step,
-    followUpDate: row.follow_up_date ?? ""
+    followUpDate: row.follow_up_date ?? "",
+    lastEmailAt: metadataText(row.metadata, "lastEmailAt")
   };
 }
 
@@ -207,8 +231,10 @@ export async function createContactRequest(contact: OutreachContact) {
       id: contact.id,
       listType: contact.listType,
       companyName: contact.companyName,
+      contactName: contact.contactName,
       email: contact.email,
       phone: contact.phone,
+      location: contact.location,
       category: contact.category,
       status: contact.status,
       priority: contact.priority,
@@ -223,8 +249,10 @@ export async function patchContactRequest(id: string, patch: Partial<OutreachCon
   const body: Record<string, unknown> = {};
   if (patch.listType !== undefined) body.listType = patch.listType;
   if (patch.companyName !== undefined) body.companyName = patch.companyName;
+  if (patch.contactName !== undefined) body.contactName = patch.contactName;
   if (patch.email !== undefined) body.email = patch.email;
   if (patch.phone !== undefined) body.phone = patch.phone;
+  if (patch.location !== undefined) body.location = patch.location;
   if (patch.category !== undefined) body.category = patch.category;
   if (patch.status !== undefined) body.status = patch.status;
   if (patch.priority !== undefined) body.priority = patch.priority;

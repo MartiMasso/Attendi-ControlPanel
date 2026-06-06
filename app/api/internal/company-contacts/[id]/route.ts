@@ -8,8 +8,10 @@ import type { InternalCompanyListType, InternalCompanyNextStep, InternalCompanyP
 interface Payload {
   listType?: InternalCompanyListType;
   companyName?: string;
+  contactName?: string;
   email?: string;
   phone?: string;
+  location?: string;
   category?: string;
   status?: InternalCompanyStatus;
   priority?: InternalCompanyPriority;
@@ -34,6 +36,10 @@ function normalizeDate(value: unknown) {
 
   const text = normalizeText(value);
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
@@ -95,11 +101,35 @@ export async function POST(request: Request, { params }: { params: { id: string 
     update.follow_up_date = normalizeDate(payload.followUpDate);
   }
 
+  const supabase = createSupabaseServerClient();
+  if (payload.contactName !== undefined || payload.location !== undefined) {
+    const { data: current, error: metadataError } = await supabase
+      .from("internal_hub_company_contacts")
+      .select("metadata")
+      .eq("id", params.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (metadataError) {
+      return NextResponse.json({ error: metadataError.message }, { status: 500 });
+    }
+
+    if (!current) {
+      return NextResponse.json({ error: "Company contact not found." }, { status: 404 });
+    }
+
+    const metadata = isRecord(current.metadata) ? current.metadata : {};
+    update.metadata = {
+      ...metadata,
+      ...(payload.contactName !== undefined ? { contactName: normalizeText(payload.contactName) } : {}),
+      ...(payload.location !== undefined ? { location: normalizeText(payload.location) } : {})
+    };
+  }
+
   if (Object.keys(update).length === 1) {
     return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
   }
 
-  const supabase = createSupabaseServerClient();
   const { data, error } = await supabase
     .from("internal_hub_company_contacts")
     .update(update)

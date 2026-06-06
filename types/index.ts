@@ -245,6 +245,7 @@ export interface InternalCompanyContactRow {
   owner_member_id: string;
   next_step: InternalCompanyNextStep;
   follow_up_date: string | null;
+  metadata: Record<string, unknown> | null;
   created_by_user_id: string | null;
   updated_by_user_id: string | null;
   deleted_at: string | null;
