@@ -13,6 +13,7 @@ import {
   LineChart,
   MessageSquare,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Users
 } from "lucide-react";
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/feedback", label: "Feedback", icon: MessageSquare },
   { href: "/audit-logs", label: "Audit Logs", icon: BookCheck },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/admin", label: "Admin", icon: ShieldAlert },
   { href: "/internal-hub", label: "Contacto", icon: Briefcase }
 ] as const;
 
