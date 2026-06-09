@@ -2,11 +2,11 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LocationPicker, type LocationResult } from "@/components/ui/location-picker";
+import { LocationField, type LocationResult } from "@/components/ui/location-field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -55,6 +55,8 @@ export function CreateProductForm() {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [createdProductId, setCreatedProductId] = useState<string | null>(null);
+  const [createdProductOwnerId, setCreatedProductOwnerId] = useState<string | null>(null);
 
   // Images
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -93,9 +95,13 @@ export function CreateProductForm() {
   const [locationLng, setLocationLng] = useState<number | null>(null);
 
   const handleLocationSelect = (result: LocationResult) => {
-    setLocationDisplay(result.displayName);
     setLocationLat(result.lat);
     setLocationLng(result.lng);
+  };
+
+  const handleCoordinatesChange = (lat: number | null, lng: number | null) => {
+    setLocationLat(lat);
+    setLocationLng(lng);
   };
 
   const ownerValue = ownerMode === "email" ? ownerEmail.trim() : ownerUserId.trim();
@@ -215,6 +221,8 @@ export function CreateProductForm() {
       }
 
       setSuccess(`Product created. ID: ${data?.product?.id}`);
+      setCreatedProductId(data?.product?.id ?? null);
+      setCreatedProductOwnerId((data?.product as { user_id?: string } | undefined)?.user_id ?? null);
       setOwnerEmail("");
       setOwnerUserId("");
       setTitle("");
@@ -400,25 +408,17 @@ export function CreateProductForm() {
         <div className="col-span-full space-y-2">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted">Search address</label>
-            <LocationPicker
+            <LocationField
               onSelect={handleLocationSelect}
+              onCoordinatesChange={handleCoordinatesChange}
+              onPublicLocationChange={(val) => setLocationDisplay(val)}
               placeholder="Search address or city…"
               initialValue={locationDisplay}
+              initialPublicLocation={locationDisplay}
+              initialLat={locationLat}
+              initialLng={locationLng}
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted">Location display name</label>
-            <Input
-              value={locationDisplay}
-              onChange={(e) => setLocationDisplay(e.target.value)}
-              placeholder="Auto-filled from picker or enter manually"
-            />
-          </div>
-          {locationLat !== null && (
-            <p className="text-xs text-text-muted">
-              Coordinates: {locationLat.toFixed(5)}, {locationLng?.toFixed(5)}
-            </p>
-          )}
         </div>
 
         <SectionTitle>Images</SectionTitle>
@@ -479,7 +479,35 @@ export function CreateProductForm() {
       </div>
 
       {error ? <p className="text-xs text-danger">{error}</p> : null}
-      {success ? <p className="text-xs text-[#22c55e]">{success}</p> : null}
+      {success && (
+        <div className="space-y-1">
+          <p className="text-xs text-[#22c55e]">{success}</p>
+          <div className="flex flex-wrap gap-3">
+            {createdProductId && (
+              <a
+                href={`${process.env.NEXT_PUBLIC_ATTENDI_APP_URL ?? "https://attendi.es"}/product/${createdProductId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                View product
+                <ExternalLink size={11} />
+              </a>
+            )}
+            {createdProductOwnerId && (
+              <a
+                href={`${process.env.NEXT_PUBLIC_ATTENDI_APP_URL ?? "https://attendi.es"}/seller/${createdProductOwnerId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                View seller profile
+                <ExternalLink size={11} />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       <Button type="submit" size="sm" disabled={isPending}>
         {isPending ? "Creating…" : "Create product"}

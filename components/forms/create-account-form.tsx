@@ -4,9 +4,11 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, X } from "lucide-react";
 
+import { ExternalLink } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LocationPicker, type LocationResult } from "@/components/ui/location-picker";
+import { LocationField, type LocationResult } from "@/components/ui/location-field";
 import { Select } from "@/components/ui/select";
 
 export function CreateAccountForm() {
@@ -16,8 +18,11 @@ export function CreateAccountForm() {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [accountType, setAccountType] = useState<"hotel" | "business">("hotel");
+  const [generateEmail, setGenerateEmail] = useState(false);
+  const [verifyEmail, setVerifyEmail] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [createdUserId, setCreatedUserId] = useState<string | null>(null);
 
   // Location (hotel)
   const [street, setStreet] = useState("");
@@ -25,13 +30,23 @@ export function CreateAccountForm() {
   const [city, setCity] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [preciseLocation, setPreciseLocation] = useState("");
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLng, setLocationLng] = useState<number | null>(null);
+  const [publicPhone, setPublicPhone] = useState("");
+  const [publicEmail, setPublicEmail] = useState("");
 
   const handleLocationSelect = (result: LocationResult) => {
-    setPreciseLocation(result.displayName);
+    setLocationLat(result.lat);
+    setLocationLng(result.lng);
     if (result.street) setStreet(result.street);
     if (result.houseNumber) setStreetNumber(result.houseNumber);
     if (result.city) setCity(result.city);
     if (result.postcode) setPostalCode(result.postcode);
+  };
+
+  const handleCoordinatesChange = (lat: number | null, lng: number | null) => {
+    setLocationLat(lat);
+    setLocationLng(lng);
   };
 
   // Profile photo
@@ -75,8 +90,12 @@ export function CreateAccountForm() {
     setError(null);
     setSuccess(null);
 
-    if (!email.trim() || !username.trim()) {
-      setError("Email and username are required.");
+    if (!generateEmail && !email.trim()) {
+      setError("Email is required, or check 'Auto-generate'.");
+      return;
+    }
+    if (!username.trim()) {
+      setError("Username is required.");
       return;
     }
 
@@ -93,7 +112,8 @@ export function CreateAccountForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim(),
+          ...(generateEmail ? { generateEmail: true } : { email: email.trim() }),
+          verifyEmail,
           fullName: fullName.trim() || undefined,
           username: username.trim(),
           accountType,
@@ -102,12 +122,16 @@ export function CreateAccountForm() {
           streetNumber: streetNumber.trim() || null,
           city: city.trim() || null,
           postalCode: postalCode.trim() || null,
-          preciseLocation: preciseLocation.trim() || null
+          preciseLocation: preciseLocation.trim() || null,
+          locationLat,
+          locationLng,
+          publicPhone: publicPhone.trim() || null,
+          publicEmail: publicEmail.trim() || null
         })
       });
 
       const rawText = await response.text().catch(() => "");
-      let data: { error?: string; message?: string; userId?: string } | null = null;
+      let data: { error?: string; message?: string; userId?: string; email?: string } | null = null;
       try { data = JSON.parse(rawText); } catch { /* not json */ }
 
       if (!response.ok) {
@@ -115,8 +139,12 @@ export function CreateAccountForm() {
         return;
       }
 
-      setSuccess(`Account created successfully. User ID: ${data?.userId}`);
+      const emailNote = generateEmail && data?.email ? ` · Email: ${data.email}` : "";
+      setSuccess(`Account created successfully. User ID: ${data?.userId}${emailNote}`);
+      setCreatedUserId(data?.userId ?? null);
       setEmail("");
+      setGenerateEmail(false);
+      setVerifyEmail(true);
       setFullName("");
       setUsername("");
       setAccountType("hotel");
@@ -125,6 +153,10 @@ export function CreateAccountForm() {
       setCity("");
       setPostalCode("");
       setPreciseLocation("");
+      setLocationLat(null);
+      setLocationLng(null);
+      setPublicPhone("");
+      setPublicEmail("");
       removePhoto();
       router.refresh();
     });
@@ -195,14 +227,51 @@ export function CreateAccountForm() {
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-medium text-text-muted">Email *</label>
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="hotel@example.com"
-            required
-          />
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-text-muted">
+              Email{!generateEmail && " *"}
+            </label>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-muted select-none">
+              <input
+                type="checkbox"
+                checked={generateEmail}
+                onChange={(e) => {
+                  setGenerateEmail(e.target.checked);
+                  if (e.target.checked) setEmail("");
+                }}
+                disabled={isWorking}
+                className="h-3.5 w-3.5 rounded border-border"
+              />
+              Auto-generate
+            </label>
+          </div>
+          {generateEmail ? (
+            <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-text-muted">
+              <span className="font-mono">attendi***@yopmail.com</span>
+            </div>
+          ) : (
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="hotel@example.com"
+              disabled={isWorking}
+            />
+          )}
+        </div>
+
+        <div className="col-span-full">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-text select-none">
+            <input
+              type="checkbox"
+              checked={verifyEmail}
+              onChange={(e) => setVerifyEmail(e.target.checked)}
+              disabled={isWorking}
+              className="h-4 w-4 rounded border-border"
+            />
+            Verify email immediately
+            <span className="text-xs text-text-muted">(uncheck to require email confirmation)</span>
+          </label>
         </div>
 
         <div className="space-y-1">
@@ -230,10 +299,15 @@ export function CreateAccountForm() {
         <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Location</p>
         <div className="space-y-1">
           <label className="text-xs font-medium text-text-muted">Search address</label>
-          <LocationPicker
+          <LocationField
             onSelect={handleLocationSelect}
+            onCoordinatesChange={handleCoordinatesChange}
+            onPublicLocationChange={(val) => setPreciseLocation(val)}
             placeholder="Search address or city…"
             initialValue={preciseLocation}
+            initialPublicLocation={preciseLocation}
+            initialLat={locationLat}
+            initialLng={locationLng}
           />
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -253,11 +327,34 @@ export function CreateAccountForm() {
             <label className="text-xs font-medium text-text-muted">City</label>
             <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Barcelona" />
           </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted">Public phone</label>
+            <Input type="tel" value={publicPhone} onChange={(e) => setPublicPhone(e.target.value)} placeholder="+34 600 000 000" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted">Public email</label>
+            <Input type="email" value={publicEmail} onChange={(e) => setPublicEmail(e.target.value)} placeholder="info@hotel.com" />
+          </div>
         </div>
       </div>
 
       {error ? <p className="text-xs text-danger">{error}</p> : null}
-      {success ? <p className="text-xs text-[#22c55e]">{success}</p> : null}
+      {success && (
+        <div className="space-y-1">
+          <p className="text-xs text-[#22c55e]">{success}</p>
+          {createdUserId && (
+            <a
+              href={`${process.env.NEXT_PUBLIC_ATTENDI_APP_URL ?? "https://attendi.es"}/seller/${createdUserId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              View profile
+              <ExternalLink size={11} />
+            </a>
+          )}
+        </div>
+      )}
 
       <Button type="submit" size="sm" disabled={isWorking}>
         {photoUploading ? "Uploading image…" : isPending ? "Creating…" : "Create account"}

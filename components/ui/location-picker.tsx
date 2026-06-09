@@ -46,7 +46,7 @@ function buildDisplayName(p: PhotonFeature["properties"], lat: number, lng: numb
 }
 
 async function searchLocations(query: string): Promise<LocationResult[]> {
-  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6&lang=es`;
+  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const json = (await res.json()) as { features?: PhotonFeature[] };

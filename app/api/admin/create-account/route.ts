@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { getActiveAdminSession } from "@/lib/auth/admin";
+import { getSupabaseConfig, getServiceRoleKey } from "@/lib/config";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { createAuditLogEntry } from "@/services/audit-log-service";
 
 interface Payload {
   email?: string;
+  generateEmail?: boolean;
+  verifyEmail?: boolean;
   fullName?: string;
   username?: string;
   accountType?: "hotel" | "business";
@@ -15,6 +18,47 @@ interface Payload {
   city?: string | null;
   postalCode?: string | null;
   preciseLocation?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  publicPhone?: string | null;
+  publicEmail?: string | null;
+}
+
+async function generateUniqueYopmailEmail(supabase: ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceClient>): Promise<string> {
+  const { url } = getSupabaseConfig();
+  const serviceKey = getServiceRoleKey();
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const number = Math.floor(100000 + Math.random() * 900000); // 6-digit
+    const candidate = `attendi${number}@yopmail.com`;
+
+    // Check auth users via GoTrue
+    if (serviceKey) {
+      const res = await fetch(
+        `${url}/auth/v1/admin/users?filter=${encodeURIComponent(candidate)}&per_page=10`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+      );
+      if (res.ok) {
+        const body = (await res.json().catch(() => null)) as { users?: Array<{ email?: string }> } | null;
+        const taken = (body?.users ?? []).some((u) => u.email?.toLowerCase() === candidate);
+        if (!taken) return candidate;
+        continue;
+      }
+    }
+
+    // Fallback: check profiles table via email (less reliable but safe)
+    if (supabase) {
+      const { count } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("email", candidate);
+      if ((count ?? 0) === 0) return candidate;
+    } else {
+      return candidate;
+    }
+  }
+
+  throw new Error("Could not generate a unique yopmail email after 20 attempts");
 }
 
 export async function POST(request: Request) {
@@ -27,8 +71,11 @@ export async function POST(request: Request) {
 
     const payload = (await request.json().catch(() => ({}))) as Payload;
 
-    if (!payload.email?.trim() || !payload.username?.trim() || !payload.accountType) {
-      return NextResponse.json({ error: "Missing required fields: email, username, accountType" }, { status: 400 });
+    if (!payload.generateEmail && !payload.email?.trim()) {
+      return NextResponse.json({ error: "Missing required fields: email (or enable generateEmail)" }, { status: 400 });
+    }
+    if (!payload.username?.trim() || !payload.accountType) {
+      return NextResponse.json({ error: "Missing required fields: username, accountType" }, { status: 400 });
     }
 
     if (payload.accountType !== "hotel" && payload.accountType !== "business") {
@@ -41,10 +88,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Service role key not configured" }, { status: 500 });
     }
 
+    let resolvedEmail: string;
+    if (payload.generateEmail) {
+      try {
+        resolvedEmail = await generateUniqueYopmailEmail(supabase);
+      } catch (genErr) {
+        return NextResponse.json({ error: genErr instanceof Error ? genErr.message : "Email generation failed" }, { status: 500 });
+      }
+    } else {
+      resolvedEmail = payload.email!.trim();
+    }
+
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email: payload.email.trim(),
+      email: resolvedEmail,
       password: "Attendi12345@",
-      email_confirm: true,
+      email_confirm: payload.verifyEmail !== false,
       user_metadata: {
         full_name: payload.fullName?.trim() ?? null,
         username: payload.username.trim()
@@ -66,8 +124,11 @@ export async function POST(request: Request) {
           full_name: payload.fullName?.trim() ?? null,
           username: payload.username.trim(),
           account_type: payload.accountType,
-          verification_status: "approved",
-          ...(payload.profilePhotoUrl ? { profile_photo_url: payload.profilePhotoUrl } : {})
+          verification_status: payload.verifyEmail !== false ? "approved" : "pending",
+          ...(payload.profilePhotoUrl ? { profile_photo_url: payload.profilePhotoUrl } : {}),
+          ...(payload.locationLat != null ? { latitude: payload.locationLat } : {}),
+          ...(payload.locationLng != null ? { longitude: payload.locationLng } : {}),
+          ...(payload.preciseLocation ? { precise_location: payload.preciseLocation } : {})
         },
         { onConflict: "id" }
       );
@@ -82,13 +143,19 @@ export async function POST(request: Request) {
     const businessData: Record<string, unknown> = {
       user_id: userId,
       organization_type: payload.accountType,
-      business_name: businessName
+      business_name: businessName,
+      business_nif: "PENDING"
     };
     if (payload.street) businessData.street = payload.street;
     if (payload.streetNumber) businessData.street_number = payload.streetNumber;
     if (payload.city) businessData.city = payload.city;
     if (payload.postalCode) businessData.postal_code = payload.postalCode;
-    if (payload.preciseLocation) businessData.precise_location = payload.preciseLocation;
+    if (payload.preciseLocation) {
+      businessData.precise_location = payload.preciseLocation;
+      businessData.hotel_public_address = payload.preciseLocation;
+    }
+    if (payload.publicPhone != null) businessData.hotel_public_phone = payload.publicPhone;
+    if (payload.publicEmail != null) businessData.hotel_public_email = payload.publicEmail;
 
     const { error: businessError } = await supabase
       .from("business_details")
@@ -105,17 +172,18 @@ export async function POST(request: Request) {
         entityType: "user",
         entityId: userId,
         metadata: {
-          email: payload.email.trim(),
+          email: resolvedEmail,
           username: payload.username.trim(),
           accountType: payload.accountType,
-          fullName: payload.fullName?.trim() ?? null
+          fullName: payload.fullName?.trim() ?? null,
+          autoGenerated: !!payload.generateEmail
         }
       });
     } catch (auditErr) {
       console.warn("[create-account] audit log failed:", auditErr instanceof Error ? auditErr.message : auditErr);
     }
 
-    return NextResponse.json({ success: true, userId, email: payload.email.trim() });
+    return NextResponse.json({ success: true, userId, email: resolvedEmail });
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)) || "Unexpected server error";
     console.error("[create-account] unhandled error:", message);
