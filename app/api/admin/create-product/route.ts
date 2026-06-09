@@ -8,6 +8,7 @@ import { createAuditLogEntry } from "@/services/audit-log-service";
 
 interface Payload {
   ownerEmail?: string;
+  ownerUserId?: string;
   title?: string;
   description?: string | null;
   category?: string;
@@ -22,6 +23,10 @@ interface Payload {
   stockTotal?: number;
   isHidden?: boolean;
   insured?: boolean;
+  imageUrls?: string[];
+  locationDisplay?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
 }
 
 async function findUserIdByEmail(email: string): Promise<string | null> {
@@ -58,8 +63,11 @@ export async function POST(request: Request) {
 
     const payload = (await request.json().catch(() => ({}))) as Payload;
 
-    if (!payload.ownerEmail?.trim()) {
-      return NextResponse.json({ error: "ownerEmail is required" }, { status: 400 });
+    const hasEmail = !!payload.ownerEmail?.trim();
+    const hasUserId = !!payload.ownerUserId?.trim();
+
+    if (!hasEmail && !hasUserId) {
+      return NextResponse.json({ error: "ownerEmail or ownerUserId is required" }, { status: 400 });
     }
     if (!payload.title?.trim()) {
       return NextResponse.json({ error: "title is required" }, { status: 400 });
@@ -68,13 +76,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "category is required" }, { status: 400 });
     }
 
-    const userId = await findUserIdByEmail(payload.ownerEmail.trim());
-
-    if (!userId) {
-      return NextResponse.json({ error: "No account found with that email address" }, { status: 404 });
-    }
-
     const supabase = createSupabaseServiceClient() ?? createSupabaseServerClient();
+
+    let userId: string;
+
+    if (hasUserId) {
+      userId = payload.ownerUserId!.trim();
+    } else {
+      const found = await findUserIdByEmail(payload.ownerEmail!.trim());
+      if (!found) {
+        return NextResponse.json({ error: "No account found with that email address" }, { status: 404 });
+      }
+      userId = found;
+    }
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -119,6 +133,12 @@ export async function POST(request: Request) {
     if (payload.pricePerMonth != null) productData.price_per_month = payload.pricePerMonth;
     if (payload.pricePerHour != null) productData.price_per_hour = payload.pricePerHour;
     if (payload.fianzaRequired && payload.fianza != null) productData.fianza = payload.fianza;
+    if (Array.isArray(payload.imageUrls) && payload.imageUrls.length > 0) {
+      productData.image_url = payload.imageUrls;
+    }
+    if (payload.locationDisplay) productData.location_display = payload.locationDisplay;
+    if (payload.locationLat != null) productData.location_lat = payload.locationLat;
+    if (payload.locationLng != null) productData.location_lng = payload.locationLng;
 
     const { data: product, error: productError } = await supabase
       .from("products")
@@ -137,7 +157,7 @@ export async function POST(request: Request) {
         entityType: "product",
         entityId: (product as { id: string }).id,
         metadata: {
-          ownerEmail: payload.ownerEmail.trim(),
+          ...(hasEmail ? { ownerEmail: payload.ownerEmail!.trim() } : {}),
           userId,
           title: payload.title.trim(),
           category: payload.category.trim(),

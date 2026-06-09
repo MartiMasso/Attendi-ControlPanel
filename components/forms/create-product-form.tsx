@@ -1,12 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LocationPicker, type LocationResult } from "@/components/ui/location-picker";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+
+interface ImageEntry {
+  file: File;
+  preview: string;
+  uploading: boolean;
+  url: string | null;
+  error: string | null;
+}
 
 const CATEGORIES: Record<string, string[]> = {
   Audiovisual: ["Cámaras", "Drones"],
@@ -46,8 +56,16 @@ export function CreateProductForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Basic
+  // Images
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [images, setImages] = useState<ImageEntry[]>([]);
+
+  // Owner
+  const [ownerMode, setOwnerMode] = useState<"email" | "userId">("email");
   const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerUserId, setOwnerUserId] = useState("");
+
+  // Basic
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
@@ -69,6 +87,19 @@ export function CreateProductForm() {
   const [isHidden, setIsHidden] = useState(false);
   const [insured, setInsured] = useState(false);
 
+  // Location
+  const [locationDisplay, setLocationDisplay] = useState("");
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLng, setLocationLng] = useState<number | null>(null);
+
+  const handleLocationSelect = (result: LocationResult) => {
+    setLocationDisplay(result.displayName);
+    setLocationLat(result.lat);
+    setLocationLng(result.lng);
+  };
+
+  const ownerValue = ownerMode === "email" ? ownerEmail.trim() : ownerUserId.trim();
+
   const subcategories = category ? CATEGORIES[category] ?? [] : [];
 
   const handleCategoryChange = (val: string) => {
@@ -79,12 +110,60 @@ export function CreateProductForm() {
   const num = (val: string) => (val.trim() ? parseFloat(val.trim()) : null);
   const int = (val: string) => (val.trim() ? parseInt(val.trim(), 10) : null);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    const entries: ImageEntry[] = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      uploading: false,
+      url: null,
+      error: null
+    }));
+    setImages((prev) => [...prev, ...entries]);
+    e.target.value = "";
+  };
+
+  const removeImage = (index: number) => {
+    setImages((prev) => {
+      URL.revokeObjectURL(prev[index].preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const uploadImages = async (): Promise<string[]> => {
+    const urls: string[] = [];
+
+    for (let i = 0; i < images.length; i++) {
+      const entry = images[i];
+      if (entry.url) { urls.push(entry.url); continue; }
+
+      setImages((prev) => prev.map((img, idx) => idx === i ? { ...img, uploading: true, error: null } : img));
+
+      const fd = new FormData();
+      fd.append("file", entry.file);
+
+      const res = await fetch("/api/admin/upload-product-image", { method: "POST", body: fd });
+      const json = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
+
+      if (!res.ok || !json?.url) {
+        const errMsg = json?.error ?? "Upload failed";
+        setImages((prev) => prev.map((img, idx) => idx === i ? { ...img, uploading: false, error: errMsg } : img));
+        throw new Error(`Image "${entry.file.name}": ${errMsg}`);
+      }
+
+      setImages((prev) => prev.map((img, idx) => idx === i ? { ...img, uploading: false, url: json.url! } : img));
+      urls.push(json.url!);
+    }
+
+    return urls;
+  };
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setSuccess(null);
 
-    if (!ownerEmail.trim()) { setError("Owner email is required."); return; }
+    if (!ownerValue) { setError(ownerMode === "email" ? "Owner email is required." : "Owner user ID is required."); return; }
     if (!title.trim()) { setError("Title is required."); return; }
     if (!category) { setError("Category is required."); return; }
 
@@ -92,11 +171,19 @@ export function CreateProductForm() {
     if (parsedStock === null || parsedStock < 1) { setError("Stock must be at least 1."); return; }
 
     startTransition(async () => {
+      let imageUrls: string[] = [];
+      try {
+        imageUrls = await uploadImages();
+      } catch (uploadErr) {
+        setError(uploadErr instanceof Error ? uploadErr.message : "Image upload failed");
+        return;
+      }
+
       const response = await fetch("/api/admin/create-product", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ownerEmail: ownerEmail.trim(),
+          ...(ownerMode === "email" ? { ownerEmail: ownerEmail.trim() } : { ownerUserId: ownerUserId.trim() }),
           title: title.trim(),
           description: description.trim() || null,
           category,
@@ -110,7 +197,11 @@ export function CreateProductForm() {
           fianza: fianzaRequired ? num(fianza) : null,
           stockTotal: parsedStock,
           isHidden,
-          insured
+          insured,
+          imageUrls,
+          locationDisplay: locationDisplay || null,
+          locationLat,
+          locationLng
         })
       });
 
@@ -125,6 +216,7 @@ export function CreateProductForm() {
 
       setSuccess(`Product created. ID: ${data?.product?.id}`);
       setOwnerEmail("");
+      setOwnerUserId("");
       setTitle("");
       setDescription("");
       setCategory("");
@@ -139,6 +231,10 @@ export function CreateProductForm() {
       setStockTotal("1");
       setIsHidden(false);
       setInsured(false);
+      setLocationDisplay("");
+      setLocationLat(null);
+      setLocationLng(null);
+      setImages([]);
       router.refresh();
     });
   };
@@ -155,15 +251,42 @@ export function CreateProductForm() {
       <div className="grid gap-3 sm:grid-cols-2">
         <SectionTitle>Owner</SectionTitle>
 
-        <Field label="Owner email" required>
-          <Input
-            type="email"
-            value={ownerEmail}
-            onChange={(e) => setOwnerEmail(e.target.value)}
-            placeholder="owner@example.com"
-            required
-          />
-        </Field>
+        <div className="col-span-full flex items-center gap-1 rounded-lg border border-border bg-surface-muted p-1 w-fit">
+          <button
+            type="button"
+            onClick={() => setOwnerMode("email")}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition ${ownerMode === "email" ? "bg-surface-elevated text-text shadow-sm" : "text-text-muted hover:text-text"}`}
+          >
+            Email
+          </button>
+          <button
+            type="button"
+            onClick={() => setOwnerMode("userId")}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition ${ownerMode === "userId" ? "bg-surface-elevated text-text shadow-sm" : "text-text-muted hover:text-text"}`}
+          >
+            User ID
+          </button>
+        </div>
+
+        {ownerMode === "email" ? (
+          <Field label="Owner email" required>
+            <Input
+              type="email"
+              value={ownerEmail}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              placeholder="owner@example.com"
+            />
+          </Field>
+        ) : (
+          <Field label="Owner user ID" required>
+            <Input
+              value={ownerUserId}
+              onChange={(e) => setOwnerUserId(e.target.value)}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              className="font-mono text-xs"
+            />
+          </Field>
+        )}
 
         <div />
 
@@ -271,6 +394,88 @@ export function CreateProductForm() {
             </label>
           </div>
         </Field>
+
+        <SectionTitle>Location</SectionTitle>
+
+        <div className="col-span-full space-y-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted">Search address</label>
+            <LocationPicker
+              onSelect={handleLocationSelect}
+              placeholder="Search address or city…"
+              initialValue={locationDisplay}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted">Location display name</label>
+            <Input
+              value={locationDisplay}
+              onChange={(e) => setLocationDisplay(e.target.value)}
+              placeholder="Auto-filled from picker or enter manually"
+            />
+          </div>
+          {locationLat !== null && (
+            <p className="text-xs text-text-muted">
+              Coordinates: {locationLat.toFixed(5)}, {locationLng?.toFixed(5)}
+            </p>
+          )}
+        </div>
+
+        <SectionTitle>Images</SectionTitle>
+
+        <div className="col-span-full space-y-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
+
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-3">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                  {img.uploading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                      <span className="text-xs font-medium text-white">Uploading…</span>
+                    </div>
+                  )}
+                  {img.error && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-red-500/80 p-1">
+                      <span className="text-center text-[10px] font-medium text-white">{img.error}</span>
+                    </div>
+                  )}
+                  {img.url && (
+                    <div className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-[#22c55e]" />
+                  )}
+                  {!img.uploading && (
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isPending}
+            className="flex items-center gap-2 rounded-lg border border-dashed border-border px-4 py-2.5 text-sm text-text-muted transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            + Add images
+          </button>
+          <p className="text-xs text-text-muted">JPEG, PNG, WebP or GIF · max 5 MB each</p>
+        </div>
       </div>
 
       {error ? <p className="text-xs text-danger">{error}</p> : null}

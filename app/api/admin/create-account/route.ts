@@ -9,6 +9,12 @@ interface Payload {
   fullName?: string;
   username?: string;
   accountType?: "hotel" | "business";
+  profilePhotoUrl?: string | null;
+  street?: string | null;
+  streetNumber?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  preciseLocation?: string | null;
 }
 
 export async function POST(request: Request) {
@@ -60,7 +66,8 @@ export async function POST(request: Request) {
           full_name: payload.fullName?.trim() ?? null,
           username: payload.username.trim(),
           account_type: payload.accountType,
-          verification_status: "approved"
+          verification_status: "approved",
+          ...(payload.profilePhotoUrl ? { profile_photo_url: payload.profilePhotoUrl } : {})
         },
         { onConflict: "id" }
       );
@@ -72,12 +79,20 @@ export async function POST(request: Request) {
 
     const businessName = payload.fullName?.trim() || payload.username.trim();
 
+    const businessData: Record<string, unknown> = {
+      user_id: userId,
+      organization_type: payload.accountType,
+      business_name: businessName
+    };
+    if (payload.street) businessData.street = payload.street;
+    if (payload.streetNumber) businessData.street_number = payload.streetNumber;
+    if (payload.city) businessData.city = payload.city;
+    if (payload.postalCode) businessData.postal_code = payload.postalCode;
+    if (payload.preciseLocation) businessData.precise_location = payload.preciseLocation;
+
     const { error: businessError } = await supabase
       .from("business_details")
-      .upsert(
-        { user_id: userId, organization_type: payload.accountType, business_name: businessName },
-        { onConflict: "user_id" }
-      );
+      .upsert(businessData, { onConflict: "user_id" });
 
     if (businessError) {
       console.warn("[create-account] business_details upsert failed:", businessError.message || businessError.code);
