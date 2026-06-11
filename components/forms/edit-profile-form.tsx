@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Check, ExternalLink, QrCode, Trash2, X } from "lucide-react";
+import { Camera, Check, ChevronDown, ExternalLink, QrCode, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,6 +91,9 @@ export function EditProfileForm() {
 
   // QR download
   const [qrLoading, setQrLoading] = useState(false);
+
+  // Background picker
+  const [bgOpen, setBgOpen] = useState(false);
 
   useEffect(() => {
     setLoadingBackgrounds(true);
@@ -491,49 +494,63 @@ export function EditProfileForm() {
           </div>
 
           {/* Background picker */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Background image</p>
-            {loadingBackgrounds ? (
-              <p className="text-xs text-text-muted">Loading backgrounds…</p>
-            ) : backgrounds.length === 0 ? (
-              <p className="text-xs text-text-muted">No backgrounds found in bucket.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedBackground(null)}
-                  className={`relative flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 bg-surface-muted transition ${selectedBackground === null ? "border-primary" : "border-border hover:border-text-muted"}`}
-                >
-                  <span className="text-[10px] text-text-muted">None</span>
-                  {selectedBackground === null && (
-                    <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-                      <Check size={10} className="text-white" />
-                    </div>
-                  )}
-                </button>
-                {backgrounds.map((bg) => (
-                  <button
-                    key={bg.name}
-                    type="button"
-                    onClick={() => setSelectedBackground(bg.url)}
-                    className={`relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border-2 transition ${selectedBackground === bg.url ? "border-primary" : "border-border hover:border-text-muted"}`}
-                    title={bg.name}
-                  >
+          <div className="rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => setBgOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2.5 text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">Background image</span>
+                {selectedBackground && (
+                  <div className="h-5 w-8 overflow-hidden rounded border border-border">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={bg.url} alt={bg.name} className="h-full w-full object-cover" />
-                    {selectedBackground === bg.url && (
-                      <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-                        <Check size={10} className="text-white" />
-                      </div>
-                    )}
-                  </button>
-                ))}
+                    <img src={selectedBackground} alt="" className="h-full w-full object-cover" />
+                  </div>
+                )}
               </div>
-            )}
-            {selectedBackground && (
-              <div className="overflow-hidden rounded-lg border border-border" style={{ height: 80 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={selectedBackground} alt="Selected background" className="h-full w-full object-cover" />
+              <ChevronDown size={14} className={`text-text-muted transition-transform ${bgOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {bgOpen && (
+              <div className="space-y-2 border-t border-border p-3">
+                {loadingBackgrounds ? (
+                  <p className="text-xs text-text-muted">Loading backgrounds…</p>
+                ) : backgrounds.length === 0 ? (
+                  <p className="text-xs text-text-muted">No backgrounds found in bucket.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBackground(null)}
+                      className={`relative flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 bg-surface-muted transition ${selectedBackground === null ? "border-primary" : "border-border hover:border-text-muted"}`}
+                    >
+                      <span className="text-[10px] text-text-muted">None</span>
+                      {selectedBackground === null && (
+                        <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                          <Check size={10} className="text-white" />
+                        </div>
+                      )}
+                    </button>
+                    {backgrounds.map((bg) => (
+                      <button
+                        key={bg.name}
+                        type="button"
+                        onClick={() => setSelectedBackground(bg.url)}
+                        className={`relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border-2 transition ${selectedBackground === bg.url ? "border-primary" : "border-border hover:border-text-muted"}`}
+                        title={bg.name}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={bg.url} alt={bg.name} className="h-full w-full object-cover" />
+                        {selectedBackground === bg.url && (
+                          <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                            <Check size={10} className="text-white" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
