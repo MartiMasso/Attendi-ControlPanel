@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id,full_name,username,account_type,profile_photo_url,verification_status,latitude,longitude,precise_location")
+      .select("id,full_name,username,account_type,profile_photo_url,verification_status,latitude,longitude,precise_location,stripe_account_id,company_setup_complete")
       .eq("id", userId)
       .maybeSingle();
 
@@ -80,6 +80,24 @@ export async function GET(request: NextRequest) {
 
     const b = (business ?? {}) as Record<string, unknown>;
 
+    const [{ data: referralCode }, { data: primaryLocation }] = await Promise.all([
+      supabase
+        .from("hotel_referral_codes")
+        .select("code")
+        .eq("hotel_id", userId)
+        .eq("active", true)
+        .order("is_default", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("hotel_locations")
+        .select("id")
+        .eq("owner_user_id", userId)
+        .eq("is_primary", true)
+        .limit(1)
+        .maybeSingle()
+    ]);
+
     return NextResponse.json({
       userId,
       email,
@@ -99,7 +117,11 @@ export async function GET(request: NextRequest) {
       city: (b.city as string | null) ?? null,
       postalCode: (b.postal_code as string | null) ?? null,
       publicPhone: (b.hotel_public_phone as string | null) ?? null,
-      publicEmail: (b.hotel_public_email as string | null) ?? null
+      publicEmail: (b.hotel_public_email as string | null) ?? null,
+      stripeAccountId: (p.stripe_account_id as string | null) ?? null,
+      companySetupComplete: typeof p.company_setup_complete === "boolean" ? p.company_setup_complete : null,
+      hotelCode: (referralCode as { code?: string } | null)?.code ?? null,
+      primaryLocationId: (primaryLocation as { id?: string } | null)?.id ?? null
     });
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)) || "Unexpected error";

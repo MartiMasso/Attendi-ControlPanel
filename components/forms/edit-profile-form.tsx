@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Check, ExternalLink, X } from "lucide-react";
+import { Camera, Check, ExternalLink, QrCode, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,10 @@ interface ProfileData {
   streetNumber: string | null;
   city: string | null;
   postalCode: string | null;
+  stripeAccountId: string | null;
+  companySetupComplete: boolean | null;
+  hotelCode: string | null;
+  primaryLocationId: string | null;
 }
 
 interface BackgroundOption {
@@ -79,6 +83,14 @@ export function EditProfileForm() {
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Stripe reset
+  const [resetStripeLoading, setResetStripeLoading] = useState(false);
+  const [resetStripeError, setResetStripeError] = useState<string | null>(null);
+  const [resetStripeSuccess, setResetStripeSuccess] = useState(false);
+
+  // QR download
+  const [qrLoading, setQrLoading] = useState(false);
 
   useEffect(() => {
     setLoadingBackgrounds(true);
@@ -174,6 +186,58 @@ export function EditProfileForm() {
       return json.url;
     } finally {
       setPhotoUploading(false);
+    }
+  };
+
+  const handleResetStripe = async () => {
+    if (!profile) return;
+    if (!confirm(`Remove stripe_account_id and reset company_setup_complete for ${profile.email ?? profile.userId}?`)) return;
+    setResetStripeError(null);
+    setResetStripeSuccess(false);
+    setResetStripeLoading(true);
+    try {
+      const res = await fetch("/api/admin/reset-stripe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: profile.userId })
+      });
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setResetStripeError(data?.error ?? `Error ${res.status}`);
+        return;
+      }
+      setResetStripeSuccess(true);
+      setProfile((prev) => prev ? { ...prev, stripeAccountId: null, companySetupComplete: false } : prev);
+    } catch (err) {
+      setResetStripeError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setResetStripeLoading(false);
+    }
+  };
+
+  const buildQrUrl = (p: ProfileData) => {
+    const base = process.env.NEXT_PUBLIC_ATTENDI_APP_URL ?? "https://www.attendi.es";
+    const params = new URLSearchParams();
+    if (p.primaryLocationId) params.set("hotel_location_id", p.primaryLocationId);
+    if (p.hotelCode) params.set("hotel_code", p.hotelCode);
+    return `${base}/seller/${p.userId}?${params.toString()}`;
+  };
+
+  const handleDownloadQR = async () => {
+    if (!profile) return;
+    setQrLoading(true);
+    try {
+      const QRCode = (await import("qrcode")).default;
+      const qrUrl = buildQrUrl(profile);
+      const dataUrl = await QRCode.toDataURL(qrUrl, { width: 512, margin: 2 });
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `qr-${profile.hotelCode ?? profile.username ?? profile.userId}.png`;
+      link.click();
+    } catch (err) {
+      console.error("QR generation failed:", err);
+    } finally {
+      setQrLoading(false);
     }
   };
 
@@ -480,6 +544,60 @@ export function EditProfileForm() {
           <Button type="submit" size="sm" disabled={isWorking}>
             {photoUploading ? "Uploading image…" : isPending ? "Saving…" : "Save changes"}
           </Button>
+
+          {/* Stripe & QR actions */}
+          <div className="mt-2 space-y-3 rounded-lg border border-border bg-surface-muted p-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Stripe & onboarding</p>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="text-xs font-medium text-text">Stripe account ID</p>
+                <p className="truncate font-mono text-xs text-text-muted">
+                  {profile.stripeAccountId ?? <span className="italic">not set</span>}
+                </p>
+                <p className="text-xs text-text-muted">
+                  Company setup: <span className={profile.companySetupComplete ? "text-[#22c55e]" : "text-warning"}>
+                    {profile.companySetupComplete === null ? "unknown" : profile.companySetupComplete ? "complete" : "incomplete"}
+                  </span>
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleResetStripe}
+                disabled={isWorking || resetStripeLoading || (!profile.stripeAccountId && profile.companySetupComplete === false)}
+                className="shrink-0 bg-danger/10 text-danger hover:bg-danger/20"
+              >
+                <Trash2 size={13} className="mr-1.5" />
+                {resetStripeLoading ? "Removing…" : "Remove Stripe ID"}
+              </Button>
+            </div>
+            {resetStripeError && <p className="text-xs text-danger">{resetStripeError}</p>}
+            {resetStripeSuccess && <p className="text-xs text-[#22c55e]">Stripe ID removed and onboarding reset.</p>}
+
+            <div className="border-t border-border pt-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">QR code</p>
+              <p className="mt-1 text-xs text-text-muted">
+                Hotel code: <span className="font-mono font-semibold text-text">{profile.hotelCode ?? <span className="italic">not set</span>}</span>
+              </p>
+              <p className="mt-0.5 text-xs text-text-muted">
+                Location ID: <span className="font-mono">{profile.primaryLocationId ?? <span className="italic">not set</span>}</span>
+              </p>
+              <p className="mt-0.5 break-all text-xs text-text-muted">
+                QR URL: <span className="font-mono">{buildQrUrl(profile)}</span>
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleDownloadQR}
+                disabled={isWorking || qrLoading}
+                className="mt-2"
+              >
+                <QrCode size={13} className="mr-1.5" />
+                {qrLoading ? "Generating…" : "Download QR"}
+              </Button>
+            </div>
+          </div>
         </>
       )}
     </form>
