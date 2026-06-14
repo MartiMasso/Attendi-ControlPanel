@@ -89,6 +89,10 @@ export function EditProfileForm() {
   const [resetStripeError, setResetStripeError] = useState<string | null>(null);
   const [resetStripeSuccess, setResetStripeSuccess] = useState(false);
 
+  // Delete user
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // QR download
   const [qrLoading, setQrLoading] = useState(false);
 
@@ -189,6 +193,35 @@ export function EditProfileForm() {
       return json.url;
     } finally {
       setPhotoUploading(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!profile) return;
+    const confirmed = confirm(
+      `PERMANENTLY DELETE user "${profile.email ?? profile.userId}"?\n\nThis will remove their auth account and all associated data. This action cannot be undone.`
+    );
+    if (!confirmed) return;
+    setDeleteError(null);
+    setDeleteLoading(true);
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: profile.userId })
+      });
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setDeleteError(data?.error ?? `Error ${res.status}`);
+        return;
+      }
+      setProfile(null);
+      setQuery("");
+      router.refresh();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -561,6 +594,28 @@ export function EditProfileForm() {
           <Button type="submit" size="sm" disabled={isWorking}>
             {photoUploading ? "Uploading image…" : isPending ? "Saving…" : "Save changes"}
           </Button>
+
+          {/* Delete user */}
+          <div className="mt-2 space-y-3 rounded-lg border border-danger/40 bg-danger/5 p-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-danger">Danger zone</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <p className="text-xs font-medium text-text">Delete user account</p>
+                <p className="text-xs text-text-muted">Permanently removes the auth account and all associated data. Cannot be undone.</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleDeleteUser}
+                disabled={isWorking || deleteLoading}
+                className="shrink-0 bg-danger text-white hover:bg-danger/90"
+              >
+                <Trash2 size={13} className="mr-1.5" />
+                {deleteLoading ? "Deleting…" : "Delete user"}
+              </Button>
+            </div>
+            {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
+          </div>
 
           {/* Stripe & QR actions */}
           <div className="mt-2 space-y-3 rounded-lg border border-border bg-surface-muted p-4">
