@@ -44,11 +44,24 @@ Creates:
 - `public.commission_agent_entity_assignments`
 - `public.platform_commission_settings` (singleton `k_hotel`)
 - `public.hotel_company_commission_overrides` (`ce_p_pct` by hotel/company pair)
+- mockup account fields on `public.profiles` and `public.products`
 
 Also creates:
 - `public.is_active_admin(uuid)` helper
 - indexes for list/detail performance
 - row-level security policies focused on active admins
+
+## Mockup accounts
+
+Migration file:
+- `supabase/migrations/20260615120000_mockup_accounts.sql`
+
+Adds internal demo account support:
+- `profiles.is_mockup`, `mockup_created_at`, `mockup_created_by_admin_user_id`, `mockup_converted_at`
+- `profiles.can_publish`, `profiles.company_setup_complete`
+- `products.is_mockup`
+- triggers that keep product mockup visibility aligned with owner profile state
+- restricted RPC `public.complete_mockup_exit(uuid)` for the main app's server-side exit flow
 
 ## Auth model
 

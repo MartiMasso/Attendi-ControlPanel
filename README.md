@@ -40,6 +40,7 @@ Private (admin-only):
 - `/incidents/[id]`
 - `/audit-logs`
 - `/settings`
+- `/mockups`
 - `/internal-hub`
 
 ## Security Model
@@ -141,6 +142,7 @@ docs/
 - Incidents listing + detail + status/priority update
 - Audit logs section
 - Settings section with current admin context
+- Mockups section for internal hotel/company demo accounts with Yopmail credentials
 - Internal Hub section with assignable team tasks and persistent internal notes
 
 ## Scripts
