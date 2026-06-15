@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Copy,
+  ExternalLink,
   Inbox,
   LogIn,
   Plus,
@@ -93,8 +94,18 @@ function maskStripeId(id: string | null) {
   return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
+const attendiAppUrl = (process.env.NEXT_PUBLIC_ATTENDI_APP_URL ?? "https://attendi.es").replace(/\/+$/, "");
+
+function getVisitorProfileUrl(row: MockupAccountRow) {
+  return `${attendiAppUrl}/seller/${row.id}`;
+}
+
 const iconButtonClass =
   "inline-flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition hover:bg-surface-muted hover:text-text disabled:cursor-not-allowed disabled:opacity-40";
+
+// Converting existing accounts is parked until Supabase Auth email changes are
+// reliable in the project. The flow below stays in the code, just unreachable.
+const CONVERT_ENABLED = false;
 
 export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady, schemaMessage }: MockupsWorkspaceProps) {
   const router = useRouter();
@@ -104,6 +115,7 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
     initialSchemaReady ? null : schemaMessage ?? "Mockup schema is not ready."
   );
   const [mode, setMode] = useState<WorkspaceMode>("create");
+  const [showConvertNotice, setShowConvertNotice] = useState(false);
 
   const [accountType, setAccountType] = useState<MockupAccountType>("hotel");
   const [displayName, setDisplayName] = useState("");
@@ -129,7 +141,9 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
   const [restoreTarget, setRestoreTarget] = useState<MockupAccountRow | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
 
-  const activeCount = useMemo(() => rows.filter((row) => row.isMockup).length, [rows]);
+  const activeRows = useMemo(() => rows.filter((row) => row.isMockup), [rows]);
+  const convertedRows = useMemo(() => rows.filter((row) => !row.isMockup), [rows]);
+  const activeCount = activeRows.length;
 
   // Always reconcile the table with the database. The server component can be
   // served from Next's client router cache, so without this the list would show
@@ -460,7 +474,10 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
         <div className="inline-flex w-full rounded-lg border border-border bg-surface-muted p-1 text-xs font-medium">
           <button
             type="button"
-            onClick={() => switchMode("create")}
+            onClick={() => {
+              switchMode("create");
+              setShowConvertNotice(false);
+            }}
             className={`flex-1 rounded-md px-3 py-1.5 transition ${
               mode === "create" ? "bg-surface-elevated text-text shadow-sm" : "text-text-muted hover:text-text"
             }`}
@@ -469,14 +486,25 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
           </button>
           <button
             type="button"
-            onClick={() => switchMode("convert")}
+            aria-disabled={!CONVERT_ENABLED}
+            onClick={() => (CONVERT_ENABLED ? switchMode("convert") : setShowConvertNotice(true))}
             className={`flex-1 rounded-md px-3 py-1.5 transition ${
-              mode === "convert" ? "bg-surface-elevated text-text shadow-sm" : "text-text-muted hover:text-text"
+              CONVERT_ENABLED
+                ? mode === "convert"
+                  ? "bg-surface-elevated text-text shadow-sm"
+                  : "text-text-muted hover:text-text"
+                : "cursor-not-allowed text-text-muted/50"
             }`}
           >
             Convert existing
           </button>
         </div>
+
+        {showConvertNotice && !CONVERT_ENABLED ? (
+          <div className="rounded-lg border border-warning/30 bg-[#fff8eb] p-3 text-sm text-warning">
+            Esta opción aún no está funcional.
+          </div>
+        ) : null}
 
         {!schemaReady ? (
           <div className="rounded-lg border border-warning/30 bg-[#fff8eb] p-3 text-sm text-warning">
@@ -484,7 +512,7 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
           </div>
         ) : null}
 
-        {mode === "create" ? (
+        {mode === "create" || !CONVERT_ENABLED ? (
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
               <CardTitle>Create mockup account</CardTitle>
@@ -747,7 +775,7 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
           </button>
         </div>
 
-        {rows.length ? (
+        {activeRows.length ? (
           <DataTable>
             <TableHeader>
               <tr>
@@ -759,7 +787,7 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
               </tr>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => {
+              {activeRows.map((row) => {
                 const yopmailHref = getYopmailHref(row.email);
 
                 return (
@@ -860,7 +888,65 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
             </TableBody>
           </DataTable>
         ) : (
-          <EmptyState title="No mockups yet" description="Create the first hotel or company mockup account." />
+          <EmptyState title="No active mockups" description="Create the first hotel or company mockup account." />
+        )}
+
+        <div className="pt-2">
+          <h3 className="text-sm font-semibold text-text">Converted accounts</h3>
+          <p className="text-xs text-text-muted">
+            Former mockups that became real accounts. They can&apos;t be deleted or accessed here — only viewed publicly.
+          </p>
+        </div>
+
+        {convertedRows.length ? (
+          <DataTable>
+            <TableHeader>
+              <tr>
+                <TableHead>Account</TableHead>
+                <TableHead>Login email</TableHead>
+                <TableHead className="whitespace-nowrap">Converted</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </tr>
+            </TableHeader>
+            <TableBody>
+              {convertedRows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <div className="max-w-[220px]">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium text-text">{getDisplayName(row)}</span>
+                        <Badge color="info">{accountTypeLabel(row.accountType)}</Badge>
+                      </div>
+                      <div className="truncate text-xs text-text-muted">{row.username}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="max-w-[230px] truncate font-mono text-xs text-text">{row.email ?? "Not exposed"}</div>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-text-muted">
+                    {formatDate(row.mockupConvertedAt ?? row.mockupCreatedAt)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <a
+                      href={getVisitorProfileUrl(row)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-surface-muted px-3 text-sm font-medium text-text transition hover:bg-[#dbe6f3]"
+                      title="View the public profile as a visitor"
+                    >
+                      <ExternalLink size={14} />
+                      Visit
+                    </a>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </DataTable>
+        ) : (
+          <EmptyState
+            title="No converted accounts yet"
+            description="Accounts that leave mockup mode and become real accounts will appear here."
+          />
         )}
       </div>
 
