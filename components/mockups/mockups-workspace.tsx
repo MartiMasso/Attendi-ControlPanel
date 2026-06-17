@@ -949,6 +949,7 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
                 <TableHead>Account</TableHead>
                 <TableHead>Login</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="whitespace-nowrap">Products</TableHead>
                 <TableHead className="whitespace-nowrap">Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </tr>
@@ -980,6 +981,10 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
                         {row.convertedFromExisting ? <Badge color="neutral">From existing</Badge> : null}
                         <StatusBadge value={row.verificationStatus ?? "-"} />
                       </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="font-medium text-text">{row.productCount}</span>
+                      <span className="text-text-muted"> {row.productCount === 1 ? "product" : "products"}</span>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-text-muted">{formatDate(row.mockupCreatedAt)}</TableCell>
                     <TableCell className="text-right">
