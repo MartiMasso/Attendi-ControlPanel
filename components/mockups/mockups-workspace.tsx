@@ -3,10 +3,15 @@
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+  ChevronRight,
   Copy,
   ExternalLink,
   Inbox,
   LogIn,
+  MoreVertical,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -14,7 +19,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +35,7 @@ import {
   type MockupAccountRow,
   type MockupAccountType
 } from "@/lib/mockups";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 interface MockupsWorkspaceProps {
   initialRows: MockupAccountRow[];
@@ -107,6 +112,115 @@ const iconButtonClass =
 // reliable in the project. The flow below stays in the code, just unreachable.
 const CONVERT_ENABLED = false;
 
+// Archiving converted accounts is purely a panel-side organisational concern:
+// these are real accounts that can't be deleted or accessed here, so the state
+// lives in localStorage rather than the database.
+const ARCHIVED_CONVERTED_KEY = "mockups:archivedConverted";
+
+interface RowMenuItem {
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}
+
+/** Lightweight kebab (three-dots) menu. Renders the panel with fixed positioning
+ * so it isn't clipped by the table's horizontal scroll container. */
+function RowMenu({ items }: { items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function onPointerDown(event: MouseEvent) {
+      if (buttonRef.current?.contains(event.target as Node) || menuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setOpen(false);
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    function onScroll() {
+      setOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setPos({ top: rect.bottom + 4, left: rect.right - 176 });
+    }
+    setOpen(true);
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={toggle}
+        className={iconButtonClass}
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More actions"
+      >
+        <MoreVertical size={16} />
+      </button>
+      {open && pos ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-50 w-44 overflow-hidden rounded-lg border border-border bg-surface-elevated py-1 shadow-lg"
+          style={{ top: pos.top, left: pos.left }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-surface-muted",
+                item.danger ? "text-danger" : "text-text"
+              )}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady, schemaMessage }: MockupsWorkspaceProps) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
@@ -141,9 +255,62 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
   const [restoreTarget, setRestoreTarget] = useState<MockupAccountRow | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const [archivedLoaded, setArchivedLoaded] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+
   const activeRows = useMemo(() => rows.filter((row) => row.isMockup), [rows]);
   const convertedRows = useMemo(() => rows.filter((row) => !row.isMockup), [rows]);
   const activeCount = activeRows.length;
+
+  // Load persisted archive state once, on the client, to avoid a hydration mismatch.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ARCHIVED_CONVERTED_KEY);
+      if (raw) {
+        setArchivedIds(new Set(JSON.parse(raw) as string[]));
+      }
+    } catch {
+      // Ignore malformed/unavailable storage; archive is non-critical UI state.
+    }
+    setArchivedLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!archivedLoaded) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(ARCHIVED_CONVERTED_KEY, JSON.stringify([...archivedIds]));
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [archivedIds, archivedLoaded]);
+
+  const visibleConvertedRows = useMemo(
+    () => convertedRows.filter((row) => !archivedIds.has(row.id)),
+    [convertedRows, archivedIds]
+  );
+  const archivedConvertedRows = useMemo(
+    () => convertedRows.filter((row) => archivedIds.has(row.id)),
+    [convertedRows, archivedIds]
+  );
+
+  const archiveConverted = useCallback((id: string) => {
+    setArchivedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const unarchiveConverted = useCallback((id: string) => {
+    setArchivedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   // Always reconcile the table with the database. The server component can be
   // served from Next's client router cache, so without this the list would show
@@ -899,49 +1066,120 @@ export function MockupsWorkspace({ initialRows, schemaReady: initialSchemaReady,
         </div>
 
         {convertedRows.length ? (
-          <DataTable>
-            <TableHeader>
-              <tr>
-                <TableHead>Account</TableHead>
-                <TableHead>Login email</TableHead>
-                <TableHead className="whitespace-nowrap">Converted</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </tr>
-            </TableHeader>
-            <TableBody>
-              {convertedRows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <div className="max-w-[220px]">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium text-text">{getDisplayName(row)}</span>
-                        <Badge color="info">{accountTypeLabel(row.accountType)}</Badge>
+          <div className="space-y-3">
+            {archivedConvertedRows.length ? (
+              <div className="overflow-hidden rounded-xl border border-border bg-surface-muted/40">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((value) => !value)}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-text-muted transition hover:bg-surface-muted"
+                  aria-expanded={showArchived}
+                >
+                  {showArchived ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <Archive size={15} />
+                  Archived
+                  <span className="rounded-full bg-surface px-2 py-0.5 text-xs text-text-muted">
+                    {archivedConvertedRows.length}
+                  </span>
+                </button>
+                {showArchived ? (
+                  <div className="divide-y divide-border border-t border-border">
+                    {archivedConvertedRows.map((row) => (
+                      <div key={row.id} className="flex items-center gap-3 px-4 py-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <span className="truncate text-sm font-medium text-text">{getDisplayName(row)}</span>
+                          <Badge color="info">{accountTypeLabel(row.accountType)}</Badge>
+                        </div>
+                        <span className="hidden whitespace-nowrap text-xs text-text-muted sm:block">
+                          {formatDate(row.mockupConvertedAt ?? row.mockupCreatedAt)}
+                        </span>
+                        <a
+                          href={getVisitorProfileUrl(row)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={iconButtonClass}
+                          title="View the public profile as a visitor"
+                          aria-label="Visit public profile"
+                        >
+                          <ExternalLink size={15} />
+                        </a>
+                        <RowMenu
+                          items={[
+                            {
+                              label: "Unarchive",
+                              icon: <ArchiveRestore size={15} />,
+                              onClick: () => unarchiveConverted(row.id)
+                            }
+                          ]}
+                        />
                       </div>
-                      <div className="truncate text-xs text-text-muted">{row.username}</div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="max-w-[230px] truncate font-mono text-xs text-text">{row.email ?? "Not exposed"}</div>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-text-muted">
-                    {formatDate(row.mockupConvertedAt ?? row.mockupCreatedAt)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <a
-                      href={getVisitorProfileUrl(row)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-surface-muted px-3 text-sm font-medium text-text transition hover:bg-[#dbe6f3]"
-                      title="View the public profile as a visitor"
-                    >
-                      <ExternalLink size={14} />
-                      Visit
-                    </a>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </DataTable>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {visibleConvertedRows.length ? (
+              <DataTable>
+                <TableHeader>
+                  <tr>
+                    <TableHead>Account</TableHead>
+                    <TableHead>Login email</TableHead>
+                    <TableHead className="whitespace-nowrap">Converted</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </tr>
+                </TableHeader>
+                <TableBody>
+                  {visibleConvertedRows.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>
+                        <div className="max-w-[220px]">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium text-text">{getDisplayName(row)}</span>
+                            <Badge color="info">{accountTypeLabel(row.accountType)}</Badge>
+                          </div>
+                          <div className="truncate text-xs text-text-muted">{row.username}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[230px] truncate font-mono text-xs text-text">{row.email ?? "Not exposed"}</div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-text-muted">
+                        {formatDate(row.mockupConvertedAt ?? row.mockupCreatedAt)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <a
+                            href={getVisitorProfileUrl(row)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-surface-muted px-3 text-sm font-medium text-text transition hover:bg-[#dbe6f3]"
+                            title="View the public profile as a visitor"
+                          >
+                            <ExternalLink size={14} />
+                            Visit
+                          </a>
+                          <RowMenu
+                            items={[
+                              {
+                                label: "Archive",
+                                icon: <Archive size={15} />,
+                                onClick: () => archiveConverted(row.id)
+                              }
+                            ]}
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </DataTable>
+            ) : (
+              <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
+                All converted accounts are archived.
+              </p>
+            )}
+          </div>
         ) : (
           <EmptyState
             title="No converted accounts yet"
