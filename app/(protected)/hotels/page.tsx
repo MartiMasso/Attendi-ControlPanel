@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   CircleAlert,
   MapPin,
+  QrCode,
   Search,
   Store,
   WalletCards
@@ -144,6 +145,11 @@ export default async function HotelsPage({ searchParams }: HotelsPageProps) {
 
   const selectedHotel = data.selectedHotel;
   const selectedLocation = selectedHotel?.selectedLocation ?? null;
+  const locationNameById = new Map(
+    (selectedHotel?.locations ?? [])
+      .filter((hotelLocation) => hotelLocation.id)
+      .map((hotelLocation) => [hotelLocation.id as string, hotelLocation.name])
+  );
 
   return (
     <div className="space-y-6">
@@ -319,6 +325,85 @@ export default async function HotelsPage({ searchParams }: HotelsPageProps) {
                   </div>
                 </div>
               </div>
+            </section>
+
+            <section className="rounded-xl border border-border bg-surface-elevated shadow-card">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                <div className="flex items-start gap-2">
+                  <QrCode className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-text">QR y código del hotel</h3>
+                    <p className="text-xs text-text-muted">
+                      Los huéspedes escanean el QR o introducen el código para vincularse a este hotel.
+                    </p>
+                  </div>
+                </div>
+                <Badge color="info">
+                  {selectedHotel.referral_codes.length}{" "}
+                  {selectedHotel.referral_codes.length === 1 ? "código" : "códigos"}
+                </Badge>
+              </div>
+
+              {selectedHotel.referral_codes.length ? (
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  {selectedHotel.referral_codes.map((referral) => {
+                    const locationLabel = referral.hotel_location_id
+                      ? locationNameById.get(referral.hotel_location_id) ?? "Localización"
+                      : "Toda la cuenta";
+
+                    return (
+                      <div key={referral.code} className="flex gap-4 rounded-lg border border-border bg-white p-4">
+                        {referral.qr_data_url ? (
+                          <div
+                            className="h-28 w-28 shrink-0 rounded-md border border-border bg-white bg-contain bg-center bg-no-repeat"
+                            style={{ backgroundImage: toBackgroundImage(referral.qr_data_url) }}
+                            role="img"
+                            aria-label={`QR del código ${referral.code}`}
+                          />
+                        ) : (
+                          <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-text-muted">
+                            <QrCode className="h-8 w-8" aria-hidden="true" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-lg font-semibold tracking-wide text-text">{referral.code}</span>
+                            <Badge color={referral.active ? "success" : "neutral"}>
+                              {referral.active ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 flex items-center gap-1.5 text-xs text-text-muted">
+                            <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{locationLabel}</span>
+                          </p>
+                          <dl className="mt-3 space-y-1 text-xs text-text-muted">
+                            <div className="flex justify-between gap-2">
+                              <dt>Usos</dt>
+                              <dd className="font-medium text-text">
+                                {referral.activations_count}
+                                {referral.max_activations !== null ? ` / ${referral.max_activations}` : ""}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                              <dt>Caduca</dt>
+                              <dd className="font-medium text-text">
+                                {referral.expires_at ? formatDate(referral.expires_at) : "Sin caducidad"}
+                              </dd>
+                            </div>
+                          </dl>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-4">
+                  <EmptyState
+                    title="Sin código de invitación"
+                    description="Este hotel todavía no tiene ningún código en hotel_referral_codes."
+                  />
+                </div>
+              )}
             </section>
 
             <section className="rounded-xl border border-border bg-surface-elevated shadow-card">

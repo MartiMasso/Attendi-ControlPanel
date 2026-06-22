@@ -1,3 +1,5 @@
+import QRCode from "qrcode";
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isMissingColumnError, isMissingDatabaseObject, isPermissionError } from "@/lib/supabase/errors";
 import { isUUID } from "@/lib/utils";
@@ -175,9 +177,26 @@ export interface HotelLocationDetail extends HotelLocationSummary {
   partners: HotelPartnerCommissionDetailRow[];
 }
 
+export interface HotelReferralCode {
+  /** Alphanumeric code shared by the QR and the manual field (e.g. HTL2026). */
+  code: string;
+  active: boolean;
+  /** Location this code targets; null means it applies to the whole hotel account. */
+  hotel_location_id: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  max_activations: number | null;
+  activations_count: number;
+  /** URL encoded in the QR (the guest deep link). */
+  qr_url: string;
+  /** PNG data URL of the generated QR, ready to drop into an <img>/background. */
+  qr_data_url: string;
+}
+
 export interface HotelDirectoryDetail extends HotelDirectoryRow {
   locations: HotelLocationSummary[];
   selectedLocation: HotelLocationDetail | null;
+  referral_codes: HotelReferralCode[];
 }
 
 export interface HotelsCommissionDirectoryData {
@@ -305,6 +324,69 @@ function getLocationKey(locationId: string | null | undefined) {
 function getLocationIdFromKey(locationKey: string | null | undefined) {
   const normalized = toOptionalText(locationKey);
   return normalized && normalized !== FALLBACK_LOCATION_KEY ? normalized : null;
+}
+
+const ATTENDI_APP_URL = (process.env.NEXT_PUBLIC_ATTENDI_APP_URL ?? "https://attendi.es").replace(/\/+$/, "");
+
+interface ReferralCodeRow {
+  code: string;
+  active: boolean | null;
+  hotel_location_id: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  max_activations: number | null;
+  activations_count: number | null;
+}
+
+/** Guest deep link encoded in the QR. The manual field uses the same bare code. */
+function buildHotelReferralUrl(code: string) {
+  return `${ATTENDI_APP_URL}/my-hotel/${encodeURIComponent(code)}?source=qr`;
+}
+
+async function getReferralCodesForHotel(hotelId: string): Promise<HotelReferralCode[]> {
+  const supabase = createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("hotel_referral_codes")
+    .select("code,active,hotel_location_id,starts_at,expires_at,max_activations,activations_count")
+    .eq("hotel_id", hotelId)
+    .order("active", { ascending: false })
+    .order("code", { ascending: true });
+
+  if (error) {
+    // The table may not exist yet in some environments; degrade gracefully.
+    if (isRecoverableReadError(error)) {
+      return [];
+    }
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as unknown as ReferralCodeRow[];
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const qrUrl = buildHotelReferralUrl(row.code);
+      let qrDataUrl = "";
+
+      try {
+        qrDataUrl = await QRCode.toDataURL(qrUrl, { width: 220, margin: 1 });
+      } catch {
+        qrDataUrl = "";
+      }
+
+      return {
+        code: row.code,
+        active: toBoolean(row.active, false),
+        hotel_location_id: toOptionalText(row.hotel_location_id),
+        starts_at: row.starts_at ?? null,
+        expires_at: row.expires_at ?? null,
+        max_activations: toNullableNumber(row.max_activations),
+        activations_count: Math.trunc(toNumber(row.activations_count, 0)),
+        qr_url: qrUrl,
+        qr_data_url: qrDataUrl
+      } satisfies HotelReferralCode;
+    })
+  );
 }
 
 function dedupe(values: Array<string | null | undefined>) {
@@ -1003,6 +1085,7 @@ export async function getHotelsCommissionDirectory({
       selectedHotel = {
         ...selectedSummary,
         locations,
+        referral_codes: [],
         selectedLocation: {
           ...selectedLocation,
           standard_ce_p_pct: roundTwo(DEFAULT_STANDARD_COMMISSION_PCT),
@@ -1015,8 +1098,13 @@ export async function getHotelsCommissionDirectory({
       selectedHotel = {
         ...selectedSummary,
         locations,
+        referral_codes: [],
         selectedLocation: null
       };
+    }
+
+    if (selectedHotel) {
+      selectedHotel.referral_codes = await getReferralCodesForHotel(selectedId);
     }
   }
 
